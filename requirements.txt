@@ -4,6 +4,7 @@ scipy
 scikit-learn
 sqlalchemy
 psycopg2-binary
+openpyxl
 plotly
 fastapi
 uvicorn
