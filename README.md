@@ -17,20 +17,45 @@ Instead of returning an LLM-generated answer that may hallucinate numbers, AI_Da
 7. Generate visualizations from actual results.
 8. Return an explainable answer with supporting evidence.
 
-## Team ownership
+## Team roles
 
-| Member | Role | Share |
-|---|---|---:|
-| Member 1 | Data Engineering & Data Quality | 25% |
-| Member 2 | AI / Agent Intelligence | 30% |
-| Member 3 | Analytics & Visualization | 22.5% |
-| Member 4 | Application, Backend & Integration | 22.5% |
+| Member | Role |
+|---|---|
+| Member 1 | Data Engineering & Data Quality |
+| Member 2 | AI / Agent Intelligence |
+| Member 3 | Analytics & Visualization |
+| Member 4 | Application, Backend & Integration |
 
 ### Role boundaries
-- **Member 1:** ingestion, schema detection, validation, cleaning, profiling, metadata and analysis-ready datasets.
-- **Member 2:** natural-language understanding, intent detection, planning, tool selection, agent workflow, validation and explanations.
-- **Member 3:** statistics, aggregation, correlations, trends, anomaly analysis and visualization generation.
-- **Member 4:** frontend, backend APIs, module integration, error handling, testing and deployment.
+- **Member 1 — Data Engineering & Data Quality:** owns data ingestion, schema detection, validation, cleaning, profiling, metadata, storage preparation and analysis-ready datasets. Main question: **Is the data ready?**
+- **Member 2 — AI / Agent Intelligence:** owns natural-language understanding, intent detection, planning, tool selection, agent workflow, validation and explanations. Main question: **What does the user want?**
+- **Member 3 — Analytics & Visualization:** owns statistics, aggregation, correlations, trends, anomaly analysis, insight extraction, visualization generation and automatic chart selection. Main question: **What does the data tell us?**
+- **Member 4 — Application, Backend & Integration:** owns frontend, backend APIs, upload/chat interfaces, module integration, error handling, integration testing and deployment. Main question: **How does the user use it?**
+
+### Responsibility flow
+
+```text
+User Dataset
+     ↓
+Member 1 — Data Engineering & Data Quality
+     ↓
+Clean / Validated / Analysis-Ready Data
+     ↓
+ ┌───────────────────────┐
+ │                       │
+ ↓                       ↓
+Member 2               Member 3
+AI / Agent              Analytics &
+Intelligence            Visualization
+ │                       │
+ └───────────┬───────────┘
+             ↓
+Member 4 — Application, Backend & Integration
+             ↓
+        User-facing results
+```
+
+The flow represents responsibility boundaries, not a strict execution order. Member 1 provides stable data interfaces that can be consumed by both the AI and analytics modules.
 
 ## Development plan
 
