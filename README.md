@@ -39,7 +39,9 @@ User Dataset
      ↓
 Member 1 — Data Engineering & Data Quality
      ↓
-Clean / Validated / Analysis-Ready Data
+Load → Validate → Profile → Clean → Prepare
+     ↓
+Analysis-Ready Data Contract
      ↓
  ┌───────────────────────┐
  │                       │
@@ -95,15 +97,49 @@ AI_DataPilot/
 └── requirements.txt
 ```
 
-## Week 1 status
+## Data foundation status
 
-Implemented the first data-layer foundation:
-
+### Week 1 — Ingestion foundation
 - Multi-format tabular loader for CSV, Excel and JSON.
 - Basic schema/type inference.
 - Dataset metadata object.
 - Missing-cell and duplicate-row counts.
 - Unit tests for loader and schema inference.
+
+### Week 2 — Validation + profiling
+- Structural dataset validation without mutating source data.
+- Required-column checks and configurable missing-value thresholds.
+- Duplicate-row, duplicate-column, blank-column and infinite-value detection.
+- Bounded per-column profiling with missingness, cardinality, examples and type-aware statistics.
+- JSON-friendly validation/profile reports.
+
+### Week 3 — Cleaning + analytical interfaces
+- Conservative, configurable cleaning pipeline.
+- Column-name cleanup and uniqueness handling.
+- String whitespace normalization and blank-string-to-missing conversion.
+- Empty-row/column and duplicate-row handling with an audit report.
+- `AnalysisReadyDataset` contract combining cleaned data, schema metadata, validation, profiling and cleaning provenance.
+- Stable column-selection/access methods for downstream AI and analytics modules.
+- Unit tests covering validation, profiling, cleaning and the downstream contract.
+
+## Data-layer contract
+
+Downstream modules should depend on the public interfaces rather than internal implementation details:
+
+```text
+DataLoader.load(path)
+        ↓
+pandas.DataFrame
+        ↓
+prepare_dataset(df)
+        ↓
+AnalysisReadyDataset
+   ├── dataframe
+   ├── metadata
+   ├── profile
+   ├── validation
+   └── cleaning audit
+```
 
 ## Development principle
 
