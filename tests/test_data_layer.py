@@ -26,6 +26,23 @@ def test_infer_schema_counts_and_types():
     assert metadata.duplicate_rows == 0
 
 
+def test_schema_flags_date_like_strings_and_identifier_names():
+    df = pd.DataFrame(
+        {
+            "customer_id": ["C-1", "C-2", "C-3"],
+            "created_at": ["2026-01-01", "2026-01-02", None],
+            "code": ["202601", "202602", "202603"],
+        }
+    )
+
+    metadata = infer_schema(df)
+
+    assert metadata.identifier_columns == ["customer_id"]
+    assert metadata.datetime_like_columns == ["created_at"]
+    assert metadata.categorical_columns == ["customer_id", "created_at", "code"]
+    assert df["created_at"].dtype == object  # inference must not mutate/coerce input
+
+
 def test_loader_rejects_missing_file():
     with pytest.raises(FileNotFoundError):
         DataLoader().load("does-not-exist.csv")
