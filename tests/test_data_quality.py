@@ -141,7 +141,7 @@ def test_preview_reports_before_and_after_without_mutating_input():
     assert preview.source_rows == 3
     assert preview.cleaned_dataframe["name"].tolist() == ["Alice", "Bob"]
     assert any(issue.code == "ALL_NULL_COLUMN" for issue in preview.source_validation.warnings)
-    assert preview.cleaning.empty_rows_removed == 0
+    assert preview.cleaning.empty_rows_removed == 1
     assert preview.cleaning.empty_columns_removed == 1
     pd.testing.assert_frame_equal(df, original)
     serialized = json.dumps(preview.to_dict(), allow_nan=False)
