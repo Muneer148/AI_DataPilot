@@ -50,14 +50,17 @@ The data layer exposes small, stable interfaces so downstream modules do not dep
 - `profile_dataframe(df, ...) -> DatasetProfile`
 - `clean_dataframe(df, ...) -> (pandas.DataFrame, CleaningReport)`
 - `prepare_dataset(df, ...) -> AnalysisReadyDataset`
+- `AnalysisReadyDataset.to_model_context(...) -> dict`
 
-`AnalysisReadyDataset` packages the cleaned DataFrame together with schema metadata, a bounded profile, validation findings and a cleaning audit report.
+`AnalysisReadyDataset` packages the prepared DataFrame together with schema metadata, a bounded profile, validation findings and a cleaning audit report. `to_model_context()` creates a bounded, privacy-conscious summary for the LLM: it excludes raw row records and omits value examples/top values by default. Examples can be explicitly enabled where appropriate. Row-level calculations must run against the actual DataFrame through deterministic analytics tools; they must not be guessed from profile summaries.
 
 ## Data-quality principles
 
 1. **Do not mutate caller-owned data.** Cleaning operates on a deep copy.
 2. **Prefer deterministic transformations.** The same input and configuration should produce the same result.
 3. **Keep cleaning auditable.** Row/column removals, blank replacements and column renames are reported.
-4. **Do not silently coerce business meaning.** Type-changing or domain-specific transformations should be explicit future steps.
-5. **Fail clearly on structural invalidity.** Required columns, duplicate column names and excessive missingness can block the analysis-ready contract.
-6. **Keep reports bounded.** Profiling returns compact examples and top values rather than dumping entire columns.
+4. **Retain duplicate records by default.** Duplicate rows are a finding, not proof of bad data; remove them only through explicit configuration.
+5. **Do not silently coerce business meaning.** Date-like strings and identifier-like column names are surfaced as semantic hints without mutating source values.
+6. **Fail clearly on structural invalidity.** Required columns, duplicate column names and excessive missingness can block the analysis-ready contract.
+7. **Keep reports bounded.** Profiling returns compact examples and top values rather than dumping entire columns.
+8. **Guard ingestion.** File type, empty paths/files and configurable file-size limits are checked before parsing.
