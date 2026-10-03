@@ -29,7 +29,7 @@ Instead of returning an LLM-generated answer that may hallucinate numbers, AI_Da
 ### Role boundaries
 - **Member 1 — Data Engineering & Data Quality:** owns data ingestion, schema detection, validation, cleaning, profiling, metadata, storage preparation and analysis-ready datasets. Main question: **Is the data ready?**
 - **Member 2 — AI / Agent Intelligence:** owns natural-language understanding, intent detection, planning, tool selection, agent workflow, validation and explanations. Main question: **What does the user want?**
-- **Member 3 — Analytics & Visualization:** owns statistics, aggregation, correlations, trends, anomaly analysis, insight extraction, visualization generation and automatic chart selection. Main question: **What does the data tell us?**
+- **Member 3 — Analytics & Visualization:** owns statistics, aggregations, correlations, trends, anomaly analysis, insight extraction, visualization generation and automatic chart selection. Main question: **What does the data tell us?**
 - **Member 4 — Application, Backend & Integration:** owns frontend, backend APIs, upload/chat interfaces, module integration, error handling, integration testing and deployment. Main question: **How does the user use it?**
 
 ### Responsibility flow
@@ -99,28 +99,27 @@ AI_DataPilot/
 
 ## Data foundation status
 
-### Week 1 — Ingestion foundation
-- Multi-format tabular loader for CSV, Excel and JSON.
-- Basic schema/type inference.
-- Dataset metadata object.
-- Missing-cell and duplicate-row counts.
-- Unit tests for loader and schema inference.
+### Ingestion
+- Supports CSV, Excel (`.xlsx`, `.xls`) and JSON input.
+- Checks file existence, file type, non-file paths, empty files and a configurable maximum file size (100 MiB by default).
+- Includes `xlrd` for legacy `.xls` parsing.
 
-### Week 2 — Validation + profiling
-- Structural dataset validation without mutating source data.
-- Required-column checks and configurable missing-value thresholds.
-- Duplicate-row, duplicate-column, blank-column and infinite-value detection.
-- Bounded per-column profiling with missingness, cardinality, examples and type-aware statistics.
-- JSON-friendly validation/profile reports.
+### Schema, validation and profiling
+- Structural schema inference with separate hints for date-like strings and identifier-like column names; inference does not silently coerce source data.
+- Structural validation, required-column checks and configurable missing-value thresholds.
+- Detection of duplicate rows/columns, blank column names, all-null columns and infinite numeric values.
+- Bounded per-column profiling with missingness, cardinality, examples, common values and type-aware statistics.
+- Profiles are designed to be JSON-friendly, including nested values and timestamps.
 
-### Week 3 — Cleaning + analytical interfaces
-- Conservative, configurable cleaning pipeline.
-- Column-name cleanup and uniqueness handling.
+### Cleaning and analytical interfaces
+- Conservative, configurable cleaning pipeline with a change audit.
+- Column-name normalization and collision-safe uniqueness handling.
 - String whitespace normalization and blank-string-to-missing conversion.
-- Empty-row/column and duplicate-row handling with an audit report.
-- `AnalysisReadyDataset` contract combining cleaned data, schema metadata, validation, profiling and cleaning provenance.
-- Stable column-selection/access methods for downstream AI and analytics modules.
-- Unit tests covering validation, profiling, cleaning and the downstream contract.
+- Empty-row/column removal is configurable; duplicate rows are retained by default and can be dropped explicitly.
+- `AnalysisReadyDataset` combines the prepared DataFrame, metadata, validation findings, profile and cleaning provenance.
+- `to_model_context()` creates a bounded LLM context without raw row records; value examples and frequent values are omitted by default.
+- Unit tests cover ingestion boundaries, schema hints, validation, profiling, cleaning and downstream contracts.
+- GitHub Actions runs the test suite on pushes and pull requests.
 
 ## Data-layer contract
 
@@ -134,13 +133,16 @@ pandas.DataFrame
 prepare_dataset(df)
         ↓
 AnalysisReadyDataset
-   ├── dataframe
-   ├── metadata
-   ├── profile
-   ├── validation
-   └── cleaning audit
+   ├── dataframe          # source of truth for deterministic analysis
+   ├── metadata           # physical types + semantic hints
+   ├── profile            # bounded per-column statistics
+   ├── validation         # quality findings
+   ├── cleaning           # transformation audit
+   └── to_model_context() # bounded LLM-facing summary, no raw records
 ```
+
+**Model handoff principle:** use the LLM to interpret the question and plan the work; use local, deterministic analytics to calculate answers from the actual DataFrame. Do not send the entire dataset to an LLM by default or infer exact aggregates from a profile summary.
 
 ## Development principle
 
-Build incrementally. Each weekly commit should leave the repository runnable and should add a coherent capability rather than placeholder code.
+Build incrementally. Each coherent change should leave the repository testable, preserve data provenance, and keep stable contracts for integration with the other team members.
