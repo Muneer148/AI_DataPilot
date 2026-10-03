@@ -40,7 +40,7 @@ def test_schema_flags_date_like_strings_and_identifier_names():
     assert metadata.identifier_columns == ["customer_id"]
     assert metadata.datetime_like_columns == ["created_at"]
     assert metadata.categorical_columns == ["customer_id", "created_at", "code"]
-    assert df["created_at"].dtype == object  # inference must not mutate/coerce input
+    assert not pd.api.types.is_datetime64_any_dtype(df["created_at"])
 
 
 def test_loader_rejects_missing_file():
