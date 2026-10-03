@@ -1,5 +1,8 @@
 """Tests for data quality and analysis-ready interfaces."""
 
+import json
+
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -54,6 +57,26 @@ def test_profile_contains_numeric_and_categorical_statistics():
     assert region.top_values[0] == ("East", 2)
 
 
+def test_profile_handles_nested_values_timestamps_and_infinity():
+    df = pd.DataFrame(
+        {
+            "payload": [{"a": 1}, {"a": 1}, ["x", "y"]],
+            "when": [pd.Timestamp("2026-01-01"), pd.NaT, pd.Timestamp("2026-01-03")],
+            "measure": [1.0, np.inf, 2.0],
+        }
+    )
+
+    profile = profile_dataframe(df)
+    payload = next(item for item in profile.column_profiles if item.name == "payload")
+    when = next(item for item in profile.column_profiles if item.name == "when")
+    measure = next(item for item in profile.column_profiles if item.name == "measure")
+
+    assert payload.unique_count == 2
+    assert when.example_values[0] == "2026-01-01T00:00:00"
+    assert measure.max_value == 2.0
+    json.dumps(profile.to_dict(), allow_nan=False)
+
+
 def test_cleaning_is_conservative_and_auditable():
     df = pd.DataFrame(
         {
@@ -63,10 +86,7 @@ def test_cleaning_is_conservative_and_auditable():
         }
     )
 
-    cleaned, report = clean_dataframe(
-        df,
-        CleaningConfig(drop_duplicate_rows=True),
-    )
+    cleaned, report = clean_dataframe(df, CleaningConfig(drop_duplicate_rows=True))
 
     assert cleaned.columns.tolist() == ["name", "amount"]
     assert cleaned["name"].tolist() == ["Alice"]
