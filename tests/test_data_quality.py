@@ -13,7 +13,7 @@ from src.data.validation import validate_dataframe
 
 
 def test_validation_reports_missing_values_and_duplicates():
-    df = pd.DataFrame({"id": [1, 1, 2], "name": ["A", None, "C"]})
+    df = pd.DataFrame({"id": [1, 1, 2, 2], "name": ["A", "A", None, "C"]})
 
     report = validate_dataframe(df)
 
