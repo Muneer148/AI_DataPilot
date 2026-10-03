@@ -6,16 +6,7 @@ AI_DataPilot is a B.Tech major project focused on building a reliable AI-powered
 
 ## Core idea
 
-Instead of returning an LLM-generated answer that may hallucinate numbers, AI_DataPilot will:
-
-1. Understand the user's analytical question.
-2. Inspect the available data/schema.
-3. Plan the required analysis.
-4. Generate and validate read-only SQL or analytical operations.
-5. Execute against the analytical data layer.
-6. Apply deterministic analytics/statistics where appropriate.
-7. Generate visualizations from actual results.
-8. Return an explainable answer with supporting evidence.
+Instead of returning an LLM-generated answer that may hallucinate numbers, AI_DataPilot will understand the user's analytical question, inspect the data/schema, plan the required analysis, execute validated operations against the actual data, and return results with supporting evidence.
 
 ## Team roles
 
@@ -26,123 +17,123 @@ Instead of returning an LLM-generated answer that may hallucinate numbers, AI_Da
 | Member 3 | Analytics & Visualization |
 | Member 4 | Application, Backend & Integration |
 
-### Role boundaries
-- **Member 1 — Data Engineering & Data Quality:** owns data ingestion, schema detection, validation, cleaning, profiling, metadata, storage preparation and analysis-ready datasets. Main question: **Is the data ready?**
-- **Member 2 — AI / Agent Intelligence:** owns natural-language understanding, intent detection, planning, tool selection, agent workflow, validation and explanations. Main question: **What does the user want?**
-- **Member 3 — Analytics & Visualization:** owns statistics, aggregations, correlations, trends, anomaly analysis, insight extraction, visualization generation and automatic chart selection. Main question: **What does the data tell us?**
-- **Member 4 — Application, Backend & Integration:** owns frontend, backend APIs, upload/chat interfaces, module integration, error handling, integration testing and deployment. Main question: **How does the user use it?**
+- **Member 1:** ingestion, schema inference, validation, cleaning, profiling, metadata and analysis-ready datasets — *Is the data ready?*
+- **Member 2:** natural-language understanding, intent detection, planning, tool selection, orchestration and explanations — *What does the user want?*
+- **Member 3:** statistics, aggregation, correlations, trends, anomaly analysis and charts — *What does the data tell us?*
+- **Member 4:** UI, backend APIs, uploads/chat, integration, error handling, integration tests and deployment — *How does the user use it?*
 
-### Responsibility flow
+## Data preparation workflow
 
 ```text
-User Dataset
-     ↓
-Member 1 — Data Engineering & Data Quality
-     ↓
-Load → Validate → Profile → Clean → Prepare
-     ↓
-Analysis-Ready Data Contract
-     ↓
- ┌───────────────────────┐
- │                       │
- ↓                       ↓
-Member 2               Member 3
-AI / Agent              Analytics &
-Intelligence            Visualization
- │                       │
- └───────────┬───────────┘
-             ↓
-Member 4 — Application, Backend & Integration
-             ↓
-        User-facing results
+File upload
+    ↓
+DataLoader (CSV / XLSX / XLS / JSON)
+    ↓
+Source validation + profile
+    ↓
+Cleaning preview (no mutation of original input)
+    ↓
+Output validation + caller approval
+    ↓
+AnalysisReadyDataset + provenance
+    ├── dataframe: source of truth for deterministic analysis
+    ├── metadata: physical schema and semantic hints
+    ├── profile: bounded column-level statistics
+    ├── validation: pre-clean and post-clean findings
+    ├── cleaning: transformation audit
+    ├── provenance: source file and preparation settings
+    └── to_model_context(): bounded LLM-facing summary
 ```
 
-The flow represents responsibility boundaries, not a strict execution order. Member 1 provides stable data interfaces that can be consumed by both the AI and analytics modules.
+The preview API does not modify the caller's DataFrame. It returns a separate cleaned preview, source quality findings, output validation and a cleaning audit. If the output validation fails, the preview remains inspectable but `ready` is false. The caller can then adjust the cleaning configuration or required-column rules before preparing the final dataset.
 
-## Development plan
+## Quick start — data layer
 
-- **Week 1:** repository architecture + data ingestion foundation
-- **Week 2:** validation + profiling
-- **Week 3:** cleaning + analytical interfaces
-- **Week 4:** initial AI/query layer + integration
-- **Weeks 5–6:** richer analytics, statistics, anomaly detection/forecasting and visualization
-- **Weeks 7–8:** SQL safety, validation, provenance and evaluation benchmark
-- **Weeks 9–10:** integration, testing, deployment and final documentation
+```python
+from src.data import CleaningConfig, preview_file, prepare_file
+
+config = CleaningConfig(drop_duplicate_rows=False)
+
+# 1. Inspect quality and proposed changes first.
+preview = preview_file(
+    "data/raw/sales.csv",
+    config=config,
+    required_columns=["sales", "region"],
+    max_missing_ratio=0.25,
+)
+print(preview.to_dict())  # raw row values are omitted by default
+
+if not preview.ready:
+    raise ValueError("Resolve the blocking validation findings before analysis.")
+
+# 2. Prepare with the same approved configuration.
+dataset = prepare_file(
+    "data/raw/sales.csv",
+    config=config,
+    required_columns=["sales", "region"],
+    max_missing_ratio=0.25,
+)
+
+# 3. Send bounded context to the LLM, not the full dataset.
+model_context = dataset.to_model_context(max_columns=100)
+
+# 4. Run exact calculations locally against the real DataFrame.
+sales_total = dataset.dataframe["sales"].sum()
+```
+
+For an in-memory DataFrame, use `preview_dataframe(df, ...)` and `prepare_dataset(df, ...)`.
+
+## Data foundation capabilities
+
+### Ingestion
+- Supports CSV, Excel (`.xlsx`, `.xls`) and JSON.
+- Validates path existence, file type, non-file paths, empty files and a configurable maximum size (100 MiB by default).
+- Includes `xlrd` for legacy `.xls` parsing and wraps common parser failures with a clear error.
+
+### Schema, validation and profiling
+- Structural type inference plus separate hints for date-like strings and identifier-like column names; source values are not silently coerced.
+- Required-column and configurable missingness checks, duplicate/blank column-name checks, all-null columns and infinite numeric-value findings.
+- Duplicate-row detection reports a warning; nested unhashable values produce an explicit skipped-check warning rather than crashing validation.
+- Bounded column profiling supports nested values and timestamps and emits JSON-compatible summaries.
+
+### Cleaning, preview and provenance
+- Cleaning works on a copy, with configurable whitespace handling, blank-to-missing conversion and empty-row/column removal.
+- Column names are normalized with collision-safe unique names.
+- Duplicate records are retained by default; dropping them requires explicit configuration.
+- `preview_dataframe()` / `preview_file()` expose source validation, source profile, proposed changes and output validation before final preparation.
+- `prepare_dataset()` / `prepare_file()` return an `AnalysisReadyDataset` with source and output validation, cleaning audit, schema, profile and provenance (source name/format/size, input/output shape and cleaning configuration).
+
+### Model handoff
+- `to_model_context()` includes bounded schema hints, profiles, quality findings and provenance but no raw rows.
+- Value examples and frequent values are excluded by default because they can contain sensitive data.
+- Exact row-level calculations must be executed by deterministic tools against `dataset.dataframe`; the LLM should interpret questions and plan analysis, not guess results from summaries.
 
 ## Repository structure
 
 ```text
 AI_DataPilot/
 ├── app/
-├── data/
-│   ├── raw/
-│   └── processed/
-├── docs/
-│   ├── architecture/
-│   ├── research/
-│   └── meeting-notes/
+├── data/                 # raw and processed data (do not commit private datasets)
+├── docs/architecture/
 ├── evaluation/
-│   ├── questions/
-│   └── results/
 ├── notebooks/
 ├── src/
 │   ├── agent/
 │   ├── analytics/
 │   ├── data/
 │   ├── sql/
-│   ├── validation/
 │   └── visualization/
 ├── tests/
-├── .gitignore
 └── requirements.txt
 ```
 
-## Data foundation status
+## Development plan
 
-### Ingestion
-- Supports CSV, Excel (`.xlsx`, `.xls`) and JSON input.
-- Checks file existence, file type, non-file paths, empty files and a configurable maximum file size (100 MiB by default).
-- Includes `xlrd` for legacy `.xls` parsing.
-
-### Schema, validation and profiling
-- Structural schema inference with separate hints for date-like strings and identifier-like column names; inference does not silently coerce source data.
-- Structural validation, required-column checks and configurable missing-value thresholds.
-- Detection of duplicate rows/columns, blank column names, all-null columns and infinite numeric values.
-- Bounded per-column profiling with missingness, cardinality, examples, common values and type-aware statistics.
-- Profiles are designed to be JSON-friendly, including nested values and timestamps.
-
-### Cleaning and analytical interfaces
-- Conservative, configurable cleaning pipeline with a change audit.
-- Column-name normalization and collision-safe uniqueness handling.
-- String whitespace normalization and blank-string-to-missing conversion.
-- Empty-row/column removal is configurable; duplicate rows are retained by default and can be dropped explicitly.
-- `AnalysisReadyDataset` combines the prepared DataFrame, metadata, validation findings, profile and cleaning provenance.
-- `to_model_context()` creates a bounded LLM context without raw row records; value examples and frequent values are omitted by default.
-- Unit tests cover ingestion boundaries, schema hints, validation, profiling, cleaning and downstream contracts.
-- GitHub Actions runs the test suite on pushes and pull requests.
-
-## Data-layer contract
-
-Downstream modules should depend on the public interfaces rather than internal implementation details:
-
-```text
-DataLoader.load(path)
-        ↓
-pandas.DataFrame
-        ↓
-prepare_dataset(df)
-        ↓
-AnalysisReadyDataset
-   ├── dataframe          # source of truth for deterministic analysis
-   ├── metadata           # physical types + semantic hints
-   ├── profile            # bounded per-column statistics
-   ├── validation         # quality findings
-   ├── cleaning           # transformation audit
-   └── to_model_context() # bounded LLM-facing summary, no raw records
-```
-
-**Model handoff principle:** use the LLM to interpret the question and plan the work; use local, deterministic analytics to calculate answers from the actual DataFrame. Do not send the entire dataset to an LLM by default or infer exact aggregates from a profile summary.
+- Stabilize the data contract and quality checks.
+- Integrate one end-to-end CSV question/analysis flow.
+- Add safe read-only query execution, provenance and regression evaluation.
+- Expand analytics/visualizations, integration testing and deployment.
 
 ## Development principle
 
-Build incrementally. Each coherent change should leave the repository testable, preserve data provenance, and keep stable contracts for integration with the other team members.
+Each coherent change should leave the repository testable, preserve data provenance, avoid unnecessary exposure of row-level data, and keep stable contracts for integration with the other team members.
