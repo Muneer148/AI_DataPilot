@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import math
+from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import date, datetime, time
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -47,39 +51,105 @@ class DatasetProfile:
         }
 
 
+def _is_missing(value: Any) -> bool:
+    """Return whether a scalar is missing without failing on lists/dicts/arrays."""
+    if value is None or value is pd.NA or value is pd.NaT:
+        return True
+    try:
+        result = pd.isna(value)
+        return bool(result) if isinstance(result, (bool, np.bool_)) else False
+    except (TypeError, ValueError):
+        return False
+
+
 def _safe_value(value: Any) -> Any:
-    """Convert common pandas/numpy scalar values into JSON-friendly Python values."""
-    if pd.isna(value):
+    """Convert common pandas/numpy values to JSON-compatible Python values."""
+    if _is_missing(value):
         return None
-    if hasattr(value, "item"):
-        try:
-            return value.item()
-        except (ValueError, TypeError):
-            pass
-    if isinstance(value, (pd.Timestamp, pd.Timedelta)):
+    if isinstance(value, (pd.Timestamp, pd.Timedelta, datetime, date, time)):
         return value.isoformat()
-    return value
+    if isinstance(value, dict):
+        return {str(key): _safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_safe_value(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return [_safe_value(item) for item in value.tolist()]
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _value_key(value: Any) -> tuple[str, str]:
+    """Create a stable-enough key for values that may be unhashable."""
+    return type(value).__name__, repr(value)
+
+
+def _distinct_values(series: pd.Series, limit: int | None = None) -> list[Any]:
+    values: list[Any] = []
+    seen: set[tuple[str, str]] = set()
+    for value in series.tolist():
+        if _is_missing(value):
+            continue
+        key = _value_key(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(value)
+        if limit is not None and len(values) >= limit:
+            break
+    return values
 
 
 def _examples(series: pd.Series, limit: int) -> tuple[Any, ...]:
-    values = series.dropna().drop_duplicates().head(limit).tolist()
-    return tuple(_safe_value(value) for value in values)
+    if limit == 0:
+        return ()
+    return tuple(_safe_value(value) for value in _distinct_values(series, limit))
 
 
-def _numeric_stats(series: pd.Series) -> dict[str, float | None]:
+def _numeric_stats(series: pd.Series) -> dict[str, Any]:
     numeric = pd.to_numeric(series, errors="coerce").dropna()
+    try:
+        numeric = numeric[np.isfinite(numeric)]
+    except TypeError:
+        return {"min_value": None, "max_value": None, "mean": None, "median": None, "std": None}
     if numeric.empty:
         return {"min_value": None, "max_value": None, "mean": None, "median": None, "std": None}
     return {
         "min_value": _safe_value(numeric.min()),
         "max_value": _safe_value(numeric.max()),
-        "mean": float(numeric.mean()),
-        "median": float(numeric.median()),
-        "std": float(numeric.std(ddof=1)) if len(numeric) > 1 else 0.0,
+        "mean": _safe_value(float(numeric.mean())),
+        "median": _safe_value(float(numeric.median())),
+        "std": _safe_value(float(numeric.std(ddof=1))) if len(numeric) > 1 else 0.0,
     }
 
 
-def profile_dataframe(df: pd.DataFrame, *, example_limit: int = 5, top_value_limit: int = 5) -> DatasetProfile:
+def _top_values(series: pd.Series, limit: int) -> tuple[tuple[Any, int], ...]:
+    if limit == 0:
+        return ()
+    counts: Counter[tuple[str, str]] = Counter()
+    examples: dict[tuple[str, str], Any] = {}
+    for value in series.tolist():
+        if _is_missing(value):
+            continue
+        key = _value_key(value)
+        counts[key] += 1
+        examples.setdefault(key, value)
+    return tuple(
+        (_safe_value(examples[key]), int(count))
+        for key, count in counts.most_common(limit)
+    )
+
+
+def profile_dataframe(
+    df: pd.DataFrame,
+    *,
+    example_limit: int = 5,
+    top_value_limit: int = 5,
+) -> DatasetProfile:
     """Create a deterministic, bounded profile without changing the input DataFrame."""
     if not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame.")
@@ -89,20 +159,25 @@ def profile_dataframe(df: pd.DataFrame, *, example_limit: int = 5, top_value_lim
     profiles: list[ColumnProfile] = []
     row_count = len(df)
 
-    for column in df.columns:
-        series = df[column]
+    for position, column in enumerate(df.columns):
+        # iloc also handles duplicate column labels when profiling raw input.
+        series = df.iloc[:, position]
         non_null = int(series.notna().sum())
         missing = row_count - non_null
-        unique = int(series.nunique(dropna=True))
+        unique = len(_distinct_values(series))
         denominator = non_null if non_null else 1
 
         stats: dict[str, Any] = {}
         top_values: tuple[tuple[Any, int], ...] = ()
         if pd.api.types.is_numeric_dtype(series):
             stats = _numeric_stats(series)
-        elif pd.api.types.is_object_dtype(series) or pd.api.types.is_categorical_dtype(series):
-            counts = series.dropna().value_counts().head(top_value_limit)
-            top_values = tuple((_safe_value(value), int(count)) for value, count in counts.items())
+        elif (
+            pd.api.types.is_object_dtype(series)
+            or isinstance(series.dtype, pd.CategoricalDtype)
+            or pd.api.types.is_string_dtype(series)
+            or pd.api.types.is_bool_dtype(series)
+        ):
+            top_values = _top_values(series, top_value_limit)
 
         profiles.append(
             ColumnProfile(
@@ -119,9 +194,15 @@ def profile_dataframe(df: pd.DataFrame, *, example_limit: int = 5, top_value_lim
             )
         )
 
+    try:
+        duplicate_rows = int(df.duplicated().sum())
+    except TypeError:
+        # Nested object values can be unhashable; avoid failing the whole profile.
+        duplicate_rows = 0
+
     return DatasetProfile(
         rows=row_count,
         columns=len(df.columns),
-        duplicate_rows=int(df.duplicated().sum()),
+        duplicate_rows=duplicate_rows,
         column_profiles=tuple(profiles),
     )
