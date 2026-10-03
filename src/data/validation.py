@@ -78,11 +78,7 @@ def validate_dataframe(
     if not df.columns.is_unique:
         duplicates = df.columns[df.columns.duplicated()].astype(str).tolist()
         issues.append(
-            _issue(
-                "error",
-                "DUPLICATE_COLUMN_NAMES",
-                f"Column names are not unique: {duplicates}.",
-            )
+            _issue("error", "DUPLICATE_COLUMN_NAMES", f"Column names are not unique: {duplicates}.")
         )
 
     blank_columns = [
@@ -92,11 +88,7 @@ def validate_dataframe(
     ]
     if blank_columns:
         issues.append(
-            _issue(
-                "error",
-                "BLANK_COLUMN_NAME",
-                f"Blank or invalid column names found: {blank_columns}.",
-            )
+            _issue("error", "BLANK_COLUMN_NAME", f"Blank or invalid column names found: {blank_columns}.")
         )
 
     required = list(required_columns or [])
@@ -112,49 +104,39 @@ def validate_dataframe(
             if ratio > max_missing_ratio:
                 issues.append(
                     _issue(
-                        "error",
-                        "MISSING_RATIO_EXCEEDED",
+                        "error", "MISSING_RATIO_EXCEEDED",
                         f"Missing ratio is {ratio:.2%}, above the allowed {max_missing_ratio:.2%}.",
                         str(column),
                     )
                 )
             elif ratio > 0:
                 issues.append(
-                    _issue(
-                        "warning",
-                        "MISSING_VALUES",
-                        f"Column contains {ratio:.2%} missing values.",
-                        str(column),
-                    )
+                    _issue("warning", "MISSING_VALUES", f"Column contains {ratio:.2%} missing values.", str(column))
                 )
 
     all_null_columns = df.columns[df.isna().all()].astype(str).tolist()
     for column in all_null_columns:
-        issues.append(
-            _issue("warning", "ALL_NULL_COLUMN", "Column contains no non-null values.", column)
-        )
+        issues.append(_issue("warning", "ALL_NULL_COLUMN", "Column contains no non-null values.", column))
 
-    duplicate_rows = int(df.duplicated().sum())
-    if duplicate_rows:
+    try:
+        duplicate_rows = int(df.duplicated().sum())
+    except (TypeError, ValueError):
+        duplicate_rows = None
         issues.append(
             _issue(
-                "warning",
-                "DUPLICATE_ROWS",
-                f"Dataset contains {duplicate_rows} duplicate row(s).",
+                "warning", "DUPLICATE_CHECK_SKIPPED",
+                "Duplicate-row detection was skipped because some values are not hashable.",
             )
+        )
+    if duplicate_rows:
+        issues.append(
+            _issue("warning", "DUPLICATE_ROWS", f"Dataset contains {duplicate_rows} duplicate row(s).")
         )
 
     numeric_columns = df.select_dtypes(include="number").columns
-    for column in numeric_columns:
+    for position, column in enumerate(numeric_columns):
         values = df[column].to_numpy(dtype=float, na_value=np.nan)
         if np.isinf(values).any():
-            issues.append(
-                _issue(
-                    "warning",
-                    "INFINITE_VALUES",
-                    "Numeric column contains infinite values.",
-                    str(column),
-                )
-            )
+            issues.append(_issue("warning", "INFINITE_VALUES", "Numeric column contains infinite values.", str(column)))
 
     return ValidationReport(tuple(issues))
