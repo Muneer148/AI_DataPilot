@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import warnings
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -45,8 +44,13 @@ def _looks_datetime_like(series: pd.Series) -> bool:
         return False
 
     # Avoid interpreting plain numeric codes such as "202401" as dates.
-    has_date_marker = strings.str.contains(r"[-/:T]|\\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\b", case=False, regex=True).any()
-    if not has_date_marker:
+    has_separator = strings.str.contains(r"[-/:T]", regex=True).any()
+    has_month_name = strings.str.contains(
+        "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec",
+        case=False,
+        regex=True,
+    ).any()
+    if not (has_separator or has_month_name):
         return False
 
     with warnings.catch_warnings():
@@ -56,11 +60,8 @@ def _looks_datetime_like(series: pd.Series) -> bool:
 
 
 def _looks_identifier_like(column_name: str) -> bool:
-    normalized = re.sub(r"[\\s-]+", "_", column_name.strip().lower())
-    return (
-        normalized == "id"
-        or normalized.endswith(("_id", "_uuid", "_key"))
-    )
+    normalized = column_name.strip().lower().replace(" ", "_").replace("-", "_")
+    return normalized == "id" or normalized.endswith(("_id", "_uuid", "_key"))
 
 
 def infer_schema(df: pd.DataFrame) -> DatasetMetadata:
