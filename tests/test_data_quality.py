@@ -144,3 +144,29 @@ def test_prepare_dataset_exposes_stable_downstream_contract():
 
     with pytest.raises(KeyError):
         dataset.get_column("unknown")
+
+
+def test_model_context_is_bounded_and_excludes_examples_by_default():
+    df = pd.DataFrame(
+        {
+            "email": ["private@example.com", "another@example.com"],
+            "age": [21, 22],
+        }
+    )
+    dataset = prepare_dataset(df)
+
+    context = dataset.to_model_context(max_columns=1)
+
+    assert context["dataset"]["schema_truncated"] is True
+    assert context["dataset"]["columns_included"] == 1
+    assert len(context["column_profiles"]) == 1
+    assert context["data_access"]["raw_rows_included"] is False
+    assert "example_values" not in context["column_profiles"][0]
+    assert "top_values" not in context["column_profiles"][0]
+    assert "private@example.com" not in json.dumps(context)
+
+    with_examples = dataset.to_model_context(include_value_examples=True)
+    assert "private@example.com" in json.dumps(with_examples)
+
+    with pytest.raises(ValueError, match="at least 1"):
+        dataset.to_model_context(max_columns=0)
