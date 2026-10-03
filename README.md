@@ -22,6 +22,17 @@ Instead of returning an LLM-generated answer that may hallucinate numbers, AI_Da
 - **Member 3:** statistics, aggregation, correlations, trends, anomaly analysis and charts — *What does the data tell us?*
 - **Member 4:** UI, backend APIs, uploads/chat, integration, error handling, integration tests and deployment — *How does the user use it?*
 
+
+## Feature implementation guides
+
+The feature branches contain a build guide for each remaining team member. Each guide explains the purpose, boundaries, suggested module structure, implementation order, integration contract, safety rules, tests and definition of done. These are implementation specifications; they do not claim the corresponding feature code already exists.
+
+- [Member 2 — AI / Agent Intelligence](https://github.com/Muneer148/AI_DataPilot/blob/feature/ai-agent/src/agent/README.md)
+- [Member 3 — Analytics & Visualization](https://github.com/Muneer148/AI_DataPilot/blob/feature/analytics/src/analytics/README.md)
+- [Member 4 — Application, Backend & Integration](https://github.com/Muneer148/AI_DataPilot/blob/feature/application/app/README.md)
+
+**Integration baseline:** use the data foundation on `feature/data-foundation` (currently documented at commit `43a96ea444abcb9a927e88a7abdad025d70d4480`). Before building against its APIs, bring that branch into the relevant feature branch through the team's agreed merge/rebase workflow. Keep each member's code ownership separate and integrate through documented contracts and tests.
+
 ## Data preparation workflow
 
 ```text
