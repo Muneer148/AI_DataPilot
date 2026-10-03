@@ -1,14 +1,33 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Iterable
 
 import pandas as pd
 
 from .cleaning import CleaningConfig, CleaningReport, clean_dataframe
+from .loader import DataLoader
 from .profiling import DatasetProfile, profile_dataframe
 from .schema import DatasetMetadata, infer_schema
 from .validation import ValidationReport, validate_dataframe
+
+
+@dataclass(frozen=True)
+class DatasetProvenance:
+    """Traceable, non-row-level record of how a prepared dataset was produced."""
+
+    source_name: str
+    source_format: str
+    source_size_bytes: int | None
+    input_rows: int
+    input_columns: int
+    output_rows: int
+    output_columns: int
+    cleaning_config: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -20,6 +39,8 @@ class AnalysisReadyDataset:
     profile: DatasetProfile
     validation: ValidationReport
     cleaning: CleaningReport
+    source_validation: ValidationReport | None = None
+    provenance: DatasetProvenance | None = None
 
     @property
     def rows(self) -> int:
@@ -44,14 +65,16 @@ class AnalysisReadyDataset:
         return self.dataframe.loc[:, selected].copy()
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the complete metadata contract, excluding raw row records."""
+        """Return the contract metadata, excluding raw row records."""
         return {
             "rows": self.rows,
             "columns": self.columns,
             "metadata": self.metadata.to_dict(),
             "profile": self.profile.to_dict(),
             "validation": self.validation.to_dict(),
+            "source_validation": self.source_validation.to_dict() if self.source_validation else None,
             "cleaning": self.cleaning.to_dict(),
+            "provenance": self.provenance.to_dict() if self.provenance else None,
         }
 
     def to_model_context(
@@ -60,11 +83,11 @@ class AnalysisReadyDataset:
         max_columns: int = 100,
         include_value_examples: bool = False,
     ) -> dict[str, Any]:
-        """Build bounded context for an LLM without sending the dataset's rows.
+        """Build bounded LLM context without raw rows or examples by default.
 
-        Examples and frequent values are excluded by default because they may
-        contain sensitive values. Row-level analysis should run against the local
-        DataFrame through deterministic tools, not be guessed from this summary.
+        Row-level analysis should run against the local DataFrame through
+        deterministic tools. The model must not infer exact calculations from
+        profile summaries alone.
         """
         if max_columns < 1:
             raise ValueError("max_columns must be at least 1.")
@@ -97,7 +120,9 @@ class AnalysisReadyDataset:
             "schema_hints": schema_hints,
             "column_profiles": column_profiles,
             "validation": self.validation.to_dict(),
+            "source_validation": self.source_validation.to_dict() if self.source_validation else None,
             "cleaning": self.cleaning.to_dict(),
+            "provenance": self.provenance.to_dict() if self.provenance else None,
             "data_access": {
                 "raw_rows_included": False,
                 "guidance": "Use local analysis tools for row-level calculations; do not infer results from profile summaries alone.",
@@ -111,8 +136,18 @@ def prepare_dataset(
     config: CleaningConfig | None = None,
     required_columns: Iterable[str] | None = None,
     max_missing_ratio: float = 1.0,
+    source_name: str = "in-memory dataset",
+    source_format: str = "dataframe",
+    source_size_bytes: int | None = None,
 ) -> AnalysisReadyDataset:
-    """Clean, validate, profile and package a DataFrame for downstream analysis."""
+    """Clean, validate, profile and package a DataFrame with provenance."""
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame.")
+    if source_size_bytes is not None and source_size_bytes < 0:
+        raise ValueError("source_size_bytes cannot be negative.")
+
+    config = config or CleaningConfig()
+    source_validation = validate_dataframe(df, allow_empty=True)
     cleaned, cleaning_report = clean_dataframe(df, config)
     validation = validate_dataframe(
         cleaned,
@@ -123,10 +158,22 @@ def prepare_dataset(
         messages = "; ".join(issue.message for issue in validation.errors)
         raise ValueError(f"Dataset failed validation: {messages}")
 
+    provenance = DatasetProvenance(
+        source_name=Path(source_name).name if source_name != "in-memory dataset" else source_name,
+        source_format=source_format.lower().lstrip("."),
+        source_size_bytes=source_size_bytes,
+        input_rows=len(df),
+        input_columns=len(df.columns),
+        output_rows=len(cleaned),
+        output_columns=len(cleaned.columns),
+        cleaning_config=asdict(config),
+    )
     return AnalysisReadyDataset(
         dataframe=cleaned,
         metadata=infer_schema(cleaned),
         profile=profile_dataframe(cleaned),
         validation=validation,
         cleaning=cleaning_report,
+        source_validation=source_validation,
+        provenance=provenance,
     )
