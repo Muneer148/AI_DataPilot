@@ -8,7 +8,12 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class CleaningConfig:
-    """Explicit, conservative cleaning options."""
+    """Explicit, conservative cleaning options.
+
+    Duplicate records are retained by default: repeated rows can be legitimate
+    events (for example, two identical purchases). Drop them only when the
+    dataset's semantics make that operation safe.
+    """
 
     strip_column_names: bool = True
     make_column_names_unique: bool = True
@@ -16,7 +21,7 @@ class CleaningConfig:
     blank_strings_to_missing: bool = True
     drop_empty_rows: bool = True
     drop_empty_columns: bool = True
-    drop_duplicate_rows: bool = True
+    drop_duplicate_rows: bool = False
 
 
 @dataclass(frozen=True)
@@ -40,11 +45,17 @@ class CleaningReport:
 
 
 def _unique_names(names: list[str]) -> list[str]:
-    counts: dict[str, int] = {}
+    """Make names unique even when generated suffixes already exist."""
+    used: set[str] = set()
     result: list[str] = []
     for name in names:
-        counts[name] = counts.get(name, 0) + 1
-        result.append(name if counts[name] == 1 else f"{name}_{counts[name]}")
+        candidate = name
+        suffix = 2
+        while candidate in used:
+            candidate = f"{name}_{suffix}"
+            suffix += 1
+        used.add(candidate)
+        result.append(candidate)
     return result
 
 
@@ -80,9 +91,13 @@ def clean_dataframe(
         for column in object_columns:
             series = cleaned[column]
             if config.strip_string_values:
-                series = series.map(lambda value: value.strip() if isinstance(value, str) else value)
+                series = series.map(
+                    lambda value: value.strip() if isinstance(value, str) else value
+                )
             if config.blank_strings_to_missing:
-                blank_mask = series.map(lambda value: isinstance(value, str) and value == "")
+                blank_mask = series.map(
+                    lambda value: isinstance(value, str) and value == ""
+                )
                 blank_strings_replaced += int(blank_mask.sum())
                 series = series.mask(blank_mask, pd.NA)
             cleaned[column] = series
