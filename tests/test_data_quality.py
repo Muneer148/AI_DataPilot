@@ -1,4 +1,4 @@
-"""Tests for Week 2-3 data quality and analysis-ready interfaces."""
+"""Tests for data quality and analysis-ready interfaces."""
 
 import pandas as pd
 import pytest
@@ -63,7 +63,10 @@ def test_cleaning_is_conservative_and_auditable():
         }
     )
 
-    cleaned, report = clean_dataframe(df)
+    cleaned, report = clean_dataframe(
+        df,
+        CleaningConfig(drop_duplicate_rows=True),
+    )
 
     assert cleaned.columns.tolist() == ["name", "amount"]
     assert cleaned["name"].tolist() == ["Alice"]
@@ -73,16 +76,38 @@ def test_cleaning_is_conservative_and_auditable():
     assert report.output_rows == 1
 
 
+def test_cleaning_retains_duplicate_records_by_default():
+    df = pd.DataFrame({"event_id": [10, 11], "amount": [25, 25]})
+
+    cleaned, report = clean_dataframe(df)
+
+    assert len(cleaned) == 2
+    assert report.duplicate_rows_removed == 0
+
+
 def test_cleaning_can_be_configured_without_dropping_duplicates():
     df = pd.DataFrame({"name": ["A", "A"], "value": [1, 1]})
 
     cleaned, report = clean_dataframe(
         df,
-        CleaningConfig(drop_duplicate_rows=False, drop_empty_rows=False, drop_empty_columns=False),
+        CleaningConfig(
+            drop_duplicate_rows=False,
+            drop_empty_rows=False,
+            drop_empty_columns=False,
+        ),
     )
 
     assert len(cleaned) == 2
     assert report.duplicate_rows_removed == 0
+
+
+def test_cleaning_makes_generated_column_names_unique():
+    df = pd.DataFrame([[1, 2, 3]], columns=["x", "x", "x_2"])
+
+    cleaned, _ = clean_dataframe(df)
+
+    assert cleaned.columns.tolist() == ["x", "x_2", "x_2_2"]
+    assert cleaned.columns.is_unique
 
 
 def test_prepare_dataset_exposes_stable_downstream_contract():
