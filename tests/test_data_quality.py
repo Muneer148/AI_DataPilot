@@ -203,3 +203,69 @@ def test_cleaning_handles_duplicate_column_labels_when_uniqueness_is_disabled():
     assert cleaned.iloc[1, 1] == "Carol"
     assert report.blank_strings_replaced == 1
     pd.testing.assert_frame_equal(df, original)
+
+
+def test_dataset_to_dict_excludes_sensitive_profile_examples_by_default():
+    df = pd.DataFrame({"email": ["private@example.com", "another@example.com"], "age": [21, 22]})
+    dataset = prepare_dataset(df)
+
+    serialized = dataset.to_dict()
+    assert "private@example.com" not in json.dumps(serialized)
+    assert "example_values" not in serialized["profile"]["column_profiles"][0]
+    assert "top_values" not in serialized["profile"]["column_profiles"][0]
+
+    with_examples = dataset.to_dict(include_value_examples=True)
+    assert "private@example.com" in json.dumps(with_examples)
+
+
+def test_required_columns_rejects_a_string_instead_of_iterating_characters():
+    df = pd.DataFrame({"sales": [10], "region": ["East"]})
+
+    with pytest.raises(TypeError, match="not a string"):
+        validate_dataframe(df, required_columns="sales")
+    with pytest.raises(TypeError, match="not a string"):
+        prepare_dataset(df, required_columns="sales")
+
+
+@pytest.mark.parametrize("threshold", [-0.1, 1.1, float("nan"), float("inf")])
+def test_validation_rejects_out_of_range_or_non_finite_missing_thresholds(threshold):
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        validate_dataframe(pd.DataFrame({"value": [1]}), max_missing_ratio=threshold)
+
+
+@pytest.mark.parametrize("threshold", ["0.5", True, None])
+def test_validation_rejects_non_numeric_missing_thresholds(threshold):
+    with pytest.raises(TypeError, match="finite number"):
+        validate_dataframe(pd.DataFrame({"value": [1]}), max_missing_ratio=threshold)
+
+
+@pytest.mark.parametrize("source_size", [-1, 1.5, True, "10"])
+def test_prepare_dataset_validates_source_size_type_and_range(source_size):
+    df = pd.DataFrame({"value": [1]})
+    if source_size == -1:
+        error = ValueError
+        message = "cannot be negative"
+    else:
+        error = TypeError
+        message = "non-negative integer"
+    with pytest.raises(error, match=message):
+        prepare_dataset(df, source_size_bytes=source_size)
+
+
+@pytest.mark.parametrize("limit_name", ["example_limit", "top_value_limit"])
+@pytest.mark.parametrize("limit", [-1, 1.5, True])
+def test_profile_limits_must_be_non_negative_integers(limit_name, limit):
+    kwargs = {limit_name: limit}
+    error = ValueError if limit == -1 else TypeError
+    with pytest.raises(error, match="non-negative integer"):
+        profile_dataframe(pd.DataFrame({"value": [1]}), **kwargs)
+
+
+def test_profile_limit_zero_is_valid():
+    profile = profile_dataframe(
+        pd.DataFrame({"label": ["secret", "public"]}),
+        example_limit=0,
+        top_value_limit=0,
+    )
+    assert profile.column_profiles[0].example_values == ()
+    assert profile.column_profiles[0].top_values == ()
