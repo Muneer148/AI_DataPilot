@@ -41,3 +41,45 @@ def test_chart_rejects_missing_fields_and_unsupported_type():
         build_chart_spec(result, x="missing", y="sales__sum")
     with pytest.raises(AnalyticsError, match="chart_type"):
         build_chart_spec(result, chart_type="radar", x="region", y="sales__sum")
+
+
+def test_pie_chart_rejects_non_numeric_negative_and_infinite_values():
+    for value in ("many", -1, float("inf")):
+        with pytest.raises(AnalyticsError, match="Pie charts require"):
+            build_chart_spec(
+                {"operation": "aggregate", "records": [{"label": "East", "value": value}]},
+                chart_type="pie",
+                x="label",
+                y="value",
+            )
+
+
+def test_empty_aggregate_chart_checks_known_result_fields():
+    empty = aggregate_dataset(
+        pd.DataFrame({
+            "region": pd.Series(dtype=object),
+            "sales": pd.Series(dtype=float),
+        }),
+        group_by=["region"],
+        aggregations={"sales": "sum"},
+    )
+    spec = build_chart_spec(empty, x="region", y="sales__sum")
+    assert spec["data"] == []
+    with pytest.raises(AnalyticsError, match="missing from result"):
+        build_chart_spec(empty, x="unknown", y="sales__sum")
+
+
+def test_chart_result_warning_metadata_and_limit_are_validated():
+    with pytest.raises(AnalyticsError, match="warnings must be a list"):
+        build_chart_spec(
+            {"operation": "aggregate", "records": [{"x": "A", "y": 1}], "warnings": "oops"},
+            x="x",
+            y="y",
+        )
+    with pytest.raises(AnalyticsError, match="max_points"):
+        build_chart_spec(
+            {"operation": "aggregate", "records": [{"x": "A", "y": 1}]},
+            x="x",
+            y="y",
+            max_points=0,
+        )

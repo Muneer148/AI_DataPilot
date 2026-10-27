@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import numbers
 from typing import Any, Mapping
 
 from src.analytics.contracts import AnalyticsError, json_safe, validate_limit
@@ -21,23 +23,78 @@ def _as_result_dict(result: Any) -> dict[str, Any]:
 def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, title: str | None = None, max_points: int = 100) -> dict[str, Any]:
     """Create a bounded chart spec from the result records; do not recalculate analytics."""
     source = _as_result_dict(result)
-    if chart_type not in SUPPORTED_CHART_TYPES:
-        raise AnalyticsError(f"chart_type must be one of {sorted(SUPPORTED_CHART_TYPES)}", code="INVALID_CHART_TYPE")
+    if not isinstance(chart_type, str) or chart_type not in SUPPORTED_CHART_TYPES:
+        raise AnalyticsError(
+            f"chart_type must be one of {sorted(SUPPORTED_CHART_TYPES)}",
+            code="INVALID_CHART_TYPE",
+        )
     if not isinstance(x, str) or not x or not isinstance(y, str) or not y:
         raise AnalyticsError("x and y must be non-empty field names", code="INVALID_CHART_FIELDS")
     max_points = validate_limit(max_points, parameter="max_points")
     records = source.get("records", [])
-    missing = sorted({field for field in (x, y) if any(field not in row for row in records)})
+    parameters = source.get("parameters") or {}
+    known_fields = set()
+    returned_columns = parameters.get("returned_columns") if isinstance(parameters, Mapping) else None
+    if isinstance(returned_columns, list) and all(isinstance(field, str) for field in returned_columns):
+        known_fields.update(returned_columns)
+    operation_fields = {
+        "describe": {
+            "column", "dtype", "non_null_count", "missing_count", "missing_ratio",
+            "numeric_count", "non_finite_count", "sum", "mean", "median", "min",
+            "max", "std", "quantiles",
+        },
+        "correlation": {"column_a", "column_b", "correlation", "sample_size"},
+        "trend": {"period", "value"},
+        "outliers": {
+            "row_position", "value", "outlier_score", "side", "lower_fence", "upper_fence",
+        },
+    }
+    known_fields.update(operation_fields.get(source.get("operation"), set()))
+    missing = sorted({
+        field for field in (x, y)
+        if (
+            any(field not in row for row in records)
+            if records
+            else bool(known_fields) and field not in known_fields
+        )
+    })
     if missing:
-        raise AnalyticsError(f"Chart fields are missing from result records: {missing}", code="UNKNOWN_CHART_FIELD", details={"fields": missing})
-    warnings = list(source.get("warnings") or [])
+        raise AnalyticsError(
+            f"Chart fields are missing from result records: {missing}",
+            code="UNKNOWN_CHART_FIELD",
+            details={"fields": missing},
+        )
+    raw_warnings = source.get("warnings") or []
+    if not isinstance(raw_warnings, list) or any(not isinstance(warning, str) for warning in raw_warnings):
+        raise AnalyticsError("result.warnings must be a list of strings", code="INVALID_CHART_RESULT")
+    warnings = list(raw_warnings)
     if not records:
         warnings.append("No result records were available to plot.")
         points = []
     else:
         if len(records) > max_points:
             warnings.append(f"Chart data was limited to {max_points} of {len(records)} result records.")
-        points = [{"x": json_safe(row.get(x)), "y": json_safe(row.get(y))} for row in records[:max_points]]
+        bounded_records = records[:max_points]
+        if chart_type == "pie":
+            for index, row in enumerate(bounded_records):
+                value = row.get(y)
+                valid_pie_value = (
+                    isinstance(value, numbers.Real)
+                    and not isinstance(value, bool)
+                )
+                if valid_pie_value:
+                    try:
+                        numeric_value = float(value)
+                        valid_pie_value = math.isfinite(numeric_value) and numeric_value >= 0
+                    except (OverflowError, TypeError, ValueError):
+                        valid_pie_value = False
+                if not valid_pie_value:
+                    raise AnalyticsError(
+                        "Pie charts require finite, non-negative numeric values in the y field",
+                        code="INVALID_PIE_VALUES",
+                        details={"field": y, "record_index": index, "value": json_safe(value)},
+                    )
+        points = [{"x": json_safe(row.get(x)), "y": json_safe(row.get(y))} for row in bounded_records]
     return {
         "type": chart_type, "title": title or f"{str(source.get('operation', 'Analysis')).title()}: {y} by {x}",
         "x": {"field": x, "label": x}, "y": {"field": y, "label": y}, "data": points,

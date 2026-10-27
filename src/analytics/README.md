@@ -55,10 +55,10 @@ figure.write_html("sales_by_region.html")
 - Numeric calculations exclude positive and negative infinity and report or warn about them. Numeric-looking strings are not coerced.
 - Standard deviation uses ddof=1 and is null when fewer than two usable values are available.
 - Aggregation count counts non-null values; row_count counts all filtered rows in each group. Missing grouping keys are retained.
-- Correlation uses pairwise-complete finite observations and reports per-pair sample size. It returns at most 1,000 pairs by default; correlation does not prove causation.
-- Numeric time columns are rejected rather than silently interpreted as nanoseconds. Other trend timestamps are parsed with invalid values coerced to missing. Naive timestamps are interpreted as UTC; the requested timezone is applied before hour/day/week/month/quarter/year bucketing.
+- Correlation supports Pearson, Spearman and Kendall; it uses pairwise-complete finite observations and reports per-pair sample size. It returns at most 1,000 pairs by default; correlation does not prove causation.
+- Numeric time columns are rejected rather than silently interpreted as nanoseconds. Missing measures and infinite measures are reported separately. Other trend timestamps are parsed with invalid values coerced to missing. Naive timestamps are interpreted as UTC; the requested timezone is applied before hour/day/week/month/quarter/year bucketing.
 - Outlier flags use IQR or population z-score thresholds. They are candidates for investigation, not proof of error or fraud.
-- Result records, returned columns and chart points are bounded. Outlier results omit unrelated row fields.
+- Result records, returned columns and chart points are bounded. Pie charts require finite, non-negative numeric values. Outlier results omit unrelated row fields.
 - Results are JSON-serializable; non-finite numbers become null. Charts use the same records returned by analytics and do not independently recompute values.
 
 ## Tests and integration

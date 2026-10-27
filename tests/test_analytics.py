@@ -195,3 +195,70 @@ def test_trend_rejects_numeric_timestamp_input():
     frame = pd.DataFrame({"timestamp": [1, 2], "value": [10, 20]})
     with pytest.raises(AnalyticsError, match="numeric values"):
         trend_dataset(frame, time_column="timestamp", value_column="value")
+
+
+def test_malformed_aggregation_operations_and_filter_values_are_rejected_cleanly():
+    frame = pd.DataFrame({"region": ["East", "West"], "sales": [10, 20]})
+    with pytest.raises(AnalyticsError, match="must be strings"):
+        aggregate_dataset(frame, aggregations={"sales": [["sum"]]})
+    with pytest.raises(AnalyticsError, match="Unsupported filter operator"):
+        aggregate_dataset(frame, filters=[{"column": "region", "operator": ["eq"], "value": "East"}])
+    with pytest.raises(AnalyticsError, match="filters must be"):
+        aggregate_dataset(frame, filters=42)
+    with pytest.raises(AnalyticsError, match="Comparison filter values must be scalar"):
+        aggregate_dataset(frame, filters=[{"column": "sales", "operator": "gt", "value": [2, 3]}])
+    with pytest.raises(AnalyticsError, match="sort_by"):
+        aggregate_dataset(frame, aggregations={"sales": "sum"}, sort_by=["sales__sum"])
+
+
+def test_all_filter_operators_have_defined_null_semantics():
+    frame = pd.DataFrame({
+        "label": ["alpha", "beta", None, "alphaX"],
+        "amount": [1, 2, 3, 4],
+    })
+    cases = [
+        ({"column": "label", "operator": "eq", "value": "alpha"}, 1),
+        ({"column": "label", "operator": "ne", "value": "alpha"}, 6),
+        ({"column": "amount", "operator": "gt", "value": 2}, 7),
+        ({"column": "amount", "operator": "gte", "value": 2}, 9),
+        ({"column": "amount", "operator": "lt", "value": 3}, 3),
+        ({"column": "amount", "operator": "lte", "value": 3}, 6),
+        ({"column": "label", "operator": "in", "value": ["alpha", "beta"]}, 3),
+        ({"column": "label", "operator": "not_in", "value": ["alpha", "beta"]}, 4),
+        ({"column": "label", "operator": "is_null"}, 3),
+        ({"column": "label", "operator": "not_null"}, 7),
+        ({"column": "label", "operator": "contains", "value": "alpha"}, 5),
+    ]
+    for filter_spec, expected_sum in cases:
+        result = aggregate_dataset(frame, aggregations={"amount": "sum"}, filters=[filter_spec])
+        assert result.records[0]["amount__sum"] == expected_sum, filter_spec
+
+
+@pytest.mark.parametrize("method", ["spearman", "kendall"])
+def test_rank_correlations_return_expected_monotonic_relationship(method):
+    frame = pd.DataFrame({"x": [1, 2, 3, 4], "y": [1, 4, 9, 16]})
+    result = correlate_dataset(frame, method=method)
+    assert result.records[0]["correlation"] == pytest.approx(1.0)
+    with pytest.raises(AnalyticsError, match="method"):
+        correlate_dataset(frame, method=["pearson"])
+
+
+def test_trend_reports_missing_measures_separately_and_rejects_bad_timezone():
+    frame = pd.DataFrame({
+        "date": ["2025-01-01", "2025-01-02", "2025-02-01"],
+        "sales": [10.0, np.nan, 30.0],
+    })
+    result = trend_dataset(frame, time_column="date", value_column="sales", interval="month")
+    assert result.row_count == 2
+    assert any("1 row(s) had missing measures" in warning for warning in result.warnings)
+    with pytest.raises(AnalyticsError, match="timezone"):
+        trend_dataset(frame, time_column="date", value_column="sales", timezone="Not/AZone")
+    with pytest.raises(AnalyticsError, match="interval"):
+        trend_dataset(frame, time_column="date", value_column="sales", interval=["month"])
+
+
+def test_single_value_iqr_analysis_warns_about_small_sample():
+    result = detect_outliers(pd.DataFrame({"value": [7.0]}), column="value", method="iqr")
+    assert result.records == []
+    assert result.metrics["sample_size"] == 1
+    assert any("At least two finite observations" in warning for warning in result.warnings)
