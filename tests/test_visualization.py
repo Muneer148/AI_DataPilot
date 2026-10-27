@@ -85,6 +85,38 @@ def test_chart_result_warning_metadata_and_limit_are_validated():
         )
 
 
+@pytest.mark.parametrize("bad_value", ["many", [1, 2], {"amount": 3}, True])
+def test_non_pie_charts_reject_non_numeric_y_values(bad_value):
+    result = {
+        "operation": "aggregate",
+        "records": [{"label": "East", "value": bad_value}],
+    }
+    with pytest.raises(AnalyticsError, match="require numeric or null y values"):
+        build_chart_spec(result, chart_type="bar", x="label", y="value")
+
+
+@pytest.mark.parametrize("bad_label", [[1, 2], {"region": "East"}])
+def test_charts_reject_nested_x_values(bad_label):
+    result = {
+        "operation": "aggregate",
+        "records": [{"label": bad_label, "value": 10}],
+    }
+    with pytest.raises(AnalyticsError, match="x values must be scalar"):
+        build_chart_spec(result, chart_type="bar", x="label", y="value")
+
+
+def test_non_pie_charts_allow_null_y_values_for_missing_points():
+    result = {
+        "operation": "aggregate",
+        "records": [{"label": "East", "value": 10}, {"label": "West", "value": None}],
+    }
+    spec = build_chart_spec(result, chart_type="line", x="label", y="value")
+    assert spec["data"] == [
+        {"x": "East", "y": 10},
+        {"x": "West", "y": None},
+    ]
+
+
 def test_chart_builder_rejects_malformed_result_metadata_with_clear_errors():
     with pytest.raises(AnalyticsError, match="result.parameters must be a mapping"):
         build_chart_spec(
