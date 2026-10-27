@@ -367,7 +367,7 @@ def test_real_data_foundation_contract_supports_all_analytics_and_charts():
 def test_describe_handles_all_null_numeric_and_mixed_dtype_columns():
     frame = pd.DataFrame({
         "all_null_numeric": pd.Series([np.nan, np.nan], dtype="float64"),
-        "mixed": [1, None],
+        "mixed": pd.Series([1, "two"], dtype=object),
         "label": ["a", "b"],
     })
     result = describe_dataset(frame)
