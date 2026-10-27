@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .contracts import AnalyticsError, AnalyticsResult, MAX_COLUMNS, finite_numeric_series, get_dataset_context, json_safe, validate_columns
+from .contracts import AnalyticsError, AnalyticsResult, MAX_COLUMNS, finite_numeric_series, get_dataset_context, json_safe, sum_numeric_values, validate_columns
 
 
 def describe_dataset(
@@ -64,7 +64,7 @@ def describe_dataset(
             record["quantiles"] = {str(q): None for q in qs}
             if not values.empty:
                 record.update({
-                    "sum": json_safe(values.sum()), "mean": json_safe(values.mean()),
+                    "sum": json_safe(sum_numeric_values(values)), "mean": json_safe(values.mean()),
                     "median": json_safe(values.median()), "min": json_safe(values.min()),
                     "max": json_safe(values.max()),
                     "std": json_safe(values.std(ddof=1)) if len(values) > 1 else None,
