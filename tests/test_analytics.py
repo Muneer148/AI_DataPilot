@@ -364,6 +364,38 @@ def test_real_data_foundation_contract_supports_all_analytics_and_charts():
     pd.testing.assert_frame_equal(prepared.dataframe, prepared_before)
 
 
+def test_describe_handles_all_null_numeric_and_mixed_dtype_columns():
+    frame = pd.DataFrame({
+        "all_null_numeric": pd.Series([np.nan, np.nan], dtype="float64"),
+        "mixed": [1, None],
+        "label": ["a", "b"],
+    })
+    result = describe_dataset(frame)
+
+    numeric = result.records[0]
+    assert numeric["missing_count"] == 2
+    assert numeric["missing_ratio"] == 1.0
+    assert numeric["numeric_count"] == 0
+    assert numeric["sum"] is None
+    assert numeric["mean"] is None
+    assert result.records[1]["numeric_count"] is None
+    assert result.records[2]["numeric_count"] is None
+
+
+def test_aggregation_rejects_output_name_collision_and_unhashable_filter_values():
+    frame = pd.DataFrame({"sales__sum": ["A", "A"], "sales": [10, 20]})
+    with pytest.raises(AnalyticsError, match="Output name collision"):
+        aggregate_dataset(
+            frame, group_by=["sales__sum"], aggregations={"sales": "sum"}
+        )
+
+    with pytest.raises(AnalyticsError, match="Filter value is incompatible|INVALID_FILTER_VALUE"):
+        aggregate_dataset(
+            pd.DataFrame({"sales": [10, 20]}),
+            filters=[{"column": "sales", "operator": "in", "value": [[10]]}],
+        )
+
+
 def test_numeric_sums_do_not_overflow_int64():
     expected_sum = 2**63
     frame = pd.DataFrame({
@@ -381,6 +413,10 @@ def test_numeric_sums_do_not_overflow_int64():
     assert description.records[0]["sum"] == expected_sum
     assert aggregation.records[0]["value__sum"] == expected_sum
     assert trend.records[0]["value"] == expected_sum
+
+    import json
+    assert json.loads(aggregation.to_json())["records"][0]["value__sum"] == expected_sum
+    assert json.loads(trend.to_json())["records"][0]["value"] == expected_sum
     pd.testing.assert_frame_equal(frame, before)
 
 
