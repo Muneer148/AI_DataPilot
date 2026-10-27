@@ -1,124 +1,74 @@
 # Member 3 — Analytics & Visualization
 
-> **Owns:** correct, reproducible calculations and charts based on the actual prepared dataset.
->
-> **Project:** AI_DataPilot · **Target branch:** `feature/analytics`
->
-> **Project roadmap:** 25 weeks total; see the [root README](../../README.md) for milestones and four-member ownership.
+> Owns deterministic calculations and charts based on the actual prepared dataset.
+> Project: AI_DataPilot · target branch: feature/analytics.
 
-## 1. Why this feature exists
+## Responsibility boundary
 
-The agent can understand a question, but it cannot be trusted to do arithmetic by generating prose. This module computes statistics and aggregations against real data and returns structured results that the agent can explain and the application can display.
+Member 1 owns ingestion, cleaning, validation, schema, profiling and provenance. Member 2 owns natural-language interpretation and orchestration. Member 3 computes numerical results from the actual DataFrame. Member 4 owns API/UI integration. This module does not copy or merge Member 1's implementation.
 
-**Rule:** pandas / NumPy calculate; the LLM interprets. Charts must be built from the same result data that is returned to the user.
+**Design rule:** pandas and NumPy calculate; the LLM interprets; charts visualize returned calculation results.
 
-## 2. Where it fits
+## Public API
 
-```text
-AnalysisReadyDataset (Member 1)
-    ↓
-Validated analysis request / plan (Member 2)
-    ↓
-Deterministic analytics functions (this module)
-    ├── result table + metrics
-    ├── warnings / assumptions
-    └── chart specification or figure
-              ↓
-Grounded answer (Member 2) + UI/API (Member 4)
-```
+- describe_dataset(dataset, columns=None, quantiles=(0.25, 0.5, 0.75), max_columns=100)
+- aggregate_dataset(dataset, group_by=(), aggregations=None, filters=None, sort_by=None, ascending=False, limit=100)
+- correlate_dataset(dataset, columns=None, method="pearson", min_periods=2)
+- trend_dataset(dataset, time_column, value_column, interval="day", aggregation="sum", timezone="UTC", limit=1000)
+- detect_outliers(dataset, column, method="iqr", threshold=1.5, max_results=100)
+- build_chart_spec(result, chart_type="bar", x=..., y=..., max_points=100)
+- build_figure(result, chart_type="bar", x=..., y=..., max_points=100)
 
-Member 1 owns data cleaning, quality, schema and provenance. Member 2 owns natural-language interpretation and orchestration. Member 4 owns API/UI integration. Do not duplicate ingestion or agent logic here.
+All analytics functions accept a pandas DataFrame or a prepared data-layer object exposing a DataFrame as .dataframe. Provenance and available validation warnings are carried forward. The prepared object is duck-typed so this branch does not duplicate Member 1's module.
 
-## 3. Input contract
+Each analytics call returns AnalyticsResult. Use result.to_dict() for JSON-friendly data or result.to_json() for strict JSON. Invalid requests raise AnalyticsError with a stable code, message and details.
 
-The integration target is the current `feature/data-foundation` branch. Check its latest commit and CI result before relying on the API; do not pin integration to an older documented commit. Bring the current branch into your working branch using the team's agreed workflow.
+## Reproducible example
 
-`AnalysisReadyDataset` is exported from `src.data` and exposes:
+~~~python
+import pandas as pd
+from src.analytics import aggregate_dataset, describe_dataset
+from src.visualization import build_chart_spec, build_figure
 
-- `dataframe`: the authoritative, prepared pandas DataFrame.
-- `metadata`: inferred column types and semantic hints.
-- `profile`: bounded quality/statistical summaries.
-- `validation` and `source_validation`: output and pre-cleaning findings.
-- `cleaning` and `provenance`: transformations and source/preparation information.
-- `get_column(name)` / `select_columns(columns)`: safe copy-returning column access helpers.
+sales = pd.DataFrame({
+    "region": ["East", "West", "East"],
+    "sales": [100, 80, 120],
+})
+description = describe_dataset(sales)
+summary = aggregate_dataset(
+    sales,
+    group_by=["region"],
+    aggregations={"sales": ["sum", "mean", "count"]},
+    sort_by="sales__sum",
+    ascending=False,
+)
+print(description.to_json())
+print(summary.to_dict())
+spec = build_chart_spec(summary, chart_type="bar", x="region", y="sales__sum")
+figure = build_figure(summary, chart_type="bar", x="region", y="sales__sum")
+figure.write_html("sales_by_region.html")
+~~~
 
-Use the DataFrame for exact calculations. Do not reconstruct exact values from the profile or send full rows to an LLM.
+## Numerical and privacy policies
 
-```python
-from src.data import prepare_file
-from src.analytics import describe_dataset  # proposed public API; implement/export it
+- Missing ratios use all rows as the denominator. An empty dataset has a zero missing ratio.
+- Numeric calculations exclude positive and negative infinity and report or warn about them. Numeric-looking strings are not coerced.
+- Standard deviation uses ddof=1 and is null when fewer than two usable values are available.
+- Aggregation count counts non-null values; row_count counts all filtered rows in each group. Missing grouping keys are retained.
+- Correlation uses pairwise-complete finite observations and reports per-pair sample size. Correlation does not prove causation.
+- Trend timestamps are parsed with invalid values coerced to missing. Naive timestamps are interpreted as UTC; the requested timezone is applied before hour/day/week/month/quarter/year bucketing.
+- Outlier flags use IQR or population z-score thresholds. They are candidates for investigation, not proof of error or fraud.
+- Result records, returned columns and chart points are bounded. Outlier results omit unrelated row fields.
+- Results are JSON-serializable; non-finite numbers become null. Charts use the same records returned by analytics and do not independently recompute values.
 
-dataset = prepare_file("data/raw/sales.csv")
-result = describe_dataset(dataset)
-```
+## Tests and integration
 
-The `src.analytics` import above is the **target API to implement**, not an existing function guaranteed to be present yet. Keep the public API small and document it.
+Run from the repository root:
 
-## 4. What to build
+~~~bash
+python -m pytest -q
+~~~
 
-Suggested layout (coordinate names with Member 2 before locking interfaces):
+The GitHub Actions workflow runs the same test command on pushes and pull requests. Tests use synthetic fixtures and need no API keys or external services.
 
-```text
-src/analytics/
-├── __init__.py
-├── contracts.py      # request/result/warning/evidence structures
-├── descriptive.py    # count, sum, mean, median, min/max, quantiles
-├── aggregation.py    # group-by, sorting, top-N and filtering
-├── relationships.py  # correlations and association with caveats
-├── trends.py         # time bucketing and period comparisons
-├── outliers.py       # transparent, configurable anomaly methods
-├── service.py        # validated public facade
-└── README.md
-src/visualization/
-├── __init__.py
-├── charts.py         # chart specification / Plotly figure builders
-└── README.md
-tests/
-├── test_analytics.py
-└── test_visualization.py
-```
-
-### Build in this order
-
-1. **Define request/result schemas.** Each request should specify operation, selected columns, grouping dimensions, filters, sorting, limit and optional time column. Validate names and types before execution.
-2. **Implement descriptive statistics.** Count rows/non-null values, sum, mean, median, min/max, quantiles and missingness. Define how nulls are treated and label the denominator for every percentage.
-3. **Implement aggregations.** Group-by summaries, sorted comparisons, top-N and basic filters. Bound result size and reject unsupported operations clearly.
-4. **Add relationships and trends.** Correlation should use appropriate numeric columns and document pairwise missing-value handling. Time trends must parse/validate the selected time field and state the aggregation interval and timezone assumptions.
-5. **Add anomaly methods only after the basics.** Begin with a documented baseline such as IQR or z-score, make thresholds configurable, and explain that flagged points are candidates for review—not proof of an error.
-6. **Return evidence with every result.** Include operation, columns, filters, row count used, missing-value policy, units if known, warnings and provenance reference. Keep result records JSON-serializable.
-7. **Build visualizations from result tables.** Use Plotly where appropriate. Return chart type, title, axes, labels and the data used; handle empty data, many categories, long labels and missing values. Do not invent a trend line or chart value.
-8. **Add a stable facade.** Member 2 should call a small service API, not import every internal helper. Member 4 should be able to serialize the result without knowing the implementation.
-
-## 5. Numerical and visualization rules
-
-- Exact calculations must be reproducible from the DataFrame.
-- Make null handling explicit; distinguish row count from non-null count.
-- Do not silently coerce invalid strings into meaningful numbers.
-- Never label correlation as causation.
-- Report the sample size and caveats for correlation/anomaly results.
-- For zero denominators, empty groups or insufficient samples, return a structured warning or error.
-- Bound output rows and chart categories so a large dataset cannot overwhelm the UI or model context.
-- Keep full row-level records out of LLM prompts unless there is an explicitly approved, bounded use case.
-- Use consistent numeric precision for display without rounding the underlying result.
-
-## 6. Minimum acceptance criteria
-
-- [ ] Descriptive statistics and group-by/top-N work on a small known fixture.
-- [ ] Results are deterministic and tested against manually calculable expected values.
-- [ ] Nulls, empty datasets, non-numeric columns, duplicate labels and invalid column names are handled.
-- [ ] Correlation/trend/anomaly results include sample-size or method caveats.
-- [ ] Result contracts include operation, inputs/filters, row counts, warnings and provenance/evidence fields.
-- [ ] Charts are based on returned result data and have readable titles/axis labels.
-- [ ] Empty results and high-cardinality categories do not crash rendering.
-- [ ] Tests run with `pytest -q` without requiring external services.
-
-## 7. Definition of done
-
-Given an `AnalysisReadyDataset` and a validated request, the module returns a deterministic, serializable result with explicit assumptions and evidence. When a chart is requested, it visualizes those same results. Both the numbers and chart inputs are covered by tests.
-
-## 8. Coordination checklist
-
-- **Member 1:** use the prepared DataFrame, metadata and provenance; do not modify the data foundation as a shortcut.
-- **Member 2:** agree on the analytics request schema, supported operations and evidence fields.
-- **Member 4:** agree how tables, warnings and chart specifications are serialized to the client.
-- Commit tests with features; document unsupported operations rather than silently approximating them.
+The latest feature/analytics branch did not contain the data-foundation code. That branch remains unmerged here; the API is compatible with its documented .dataframe and provenance fields. After the team approves integration, run the combined branch regression suite. Agent orchestration and UI/API wiring remain the responsibility of Members 2 and 4.
