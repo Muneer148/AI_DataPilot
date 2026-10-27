@@ -105,6 +105,25 @@ def test_charts_reject_nested_x_values(bad_label):
         build_chart_spec(result, chart_type="bar", x="label", y="value")
 
 
+@pytest.mark.parametrize("bad_value", [float("inf"), float("nan"), 10**400])
+def test_non_pie_charts_reject_non_finite_or_unrepresentable_y_values(bad_value):
+    result = {
+        "operation": "aggregate",
+        "records": [{"label": "East", "value": bad_value}],
+    }
+    with pytest.raises(AnalyticsError, match="y values must be finite numbers"):
+        build_chart_spec(result, chart_type="bar", x="label", y="value")
+
+
+def test_charts_reject_non_finite_numeric_x_values():
+    result = {
+        "operation": "aggregate",
+        "records": [{"label": float("inf"), "value": 10}],
+    }
+    with pytest.raises(AnalyticsError, match="x values must be finite numbers"):
+        build_chart_spec(result, chart_type="scatter", x="label", y="value")
+
+
 def test_non_pie_charts_allow_null_y_values_for_missing_points():
     result = {
         "operation": "aggregate",
