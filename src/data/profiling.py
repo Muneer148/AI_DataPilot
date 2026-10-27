@@ -4,6 +4,7 @@ import math
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time
+from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -153,8 +154,11 @@ def profile_dataframe(
     """Create a deterministic, bounded profile without changing the input DataFrame."""
     if not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame.")
-    if example_limit < 0 or top_value_limit < 0:
-        raise ValueError("Profile limits must be non-negative.")
+    for name, limit in (("example_limit", example_limit), ("top_value_limit", top_value_limit)):
+        if isinstance(limit, bool) or not isinstance(limit, Integral):
+            raise TypeError(f"{name} must be a non-negative integer.")
+        if limit < 0:
+            raise ValueError(f"{name} must be a non-negative integer.")
 
     profiles: list[ColumnProfile] = []
     row_count = len(df)

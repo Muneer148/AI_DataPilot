@@ -87,9 +87,15 @@ def clean_dataframe(
 
     blank_strings_replaced = 0
     if config.strip_string_values or config.blank_strings_to_missing:
-        object_columns = cleaned.select_dtypes(include=["object", "string"]).columns
-        for column in object_columns:
-            series = cleaned[column]
+        # Work by column position: when callers deliberately disable unique
+        # names, selecting by label can return multiple columns as a DataFrame.
+        string_positions = [
+            position
+            for position, dtype in enumerate(cleaned.dtypes)
+            if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype)
+        ]
+        for position in string_positions:
+            series = cleaned.iloc[:, position]
             if config.strip_string_values:
                 series = series.map(
                     lambda value: value.strip() if isinstance(value, str) else value
@@ -100,7 +106,7 @@ def clean_dataframe(
                 )
                 blank_strings_replaced += int(blank_mask.sum())
                 series = series.mask(blank_mask, pd.NA)
-            cleaned[column] = series
+            cleaned.isetitem(position, series)
 
     empty_rows_removed = 0
     if config.drop_empty_rows:
