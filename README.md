@@ -94,6 +94,29 @@ sales_total = dataset.dataframe["sales"].sum()
 
 For an in-memory DataFrame, use `preview_dataframe(df, ...)` and `prepare_dataset(df, ...)`.
 
+## Run the data foundation demo
+
+From the repository root, preview the built-in synthetic sales dataset:
+
+```bash
+python -m examples.data_foundation_demo
+```
+
+The command prints a JSON quality report and proposed cleaning audit without raw row values. Preparation is deliberately a separate, explicit step:
+
+```bash
+python -m examples.data_foundation_demo --prepare
+```
+
+To inspect a real local file, pass its path. Repeat any required-column option as needed; review the preview before using `--prepare`.
+
+```bash
+python -m examples.data_foundation_demo path/to/sales.csv --required-column sales --required-column region --max-missing-ratio 0.25
+python -m examples.data_foundation_demo path/to/sales.csv --required-column sales --required-column region --max-missing-ratio 0.25 --prepare
+```
+
+The demo uses the same cleaning configuration for preview and preparation, blocks preparation when output validation fails, and emits bounded model context without raw rows or value examples by default.
+
 ## Data foundation capabilities
 
 ### Ingestion
