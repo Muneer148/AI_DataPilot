@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -75,10 +77,15 @@ def preview_dataframe(
     """Inspect quality and preview cleaning without mutating the input."""
     if not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame.")
-    if not 0 <= max_missing_ratio <= 1:
+    if isinstance(max_missing_ratio, bool) or not isinstance(max_missing_ratio, Real):
+        raise TypeError("max_missing_ratio must be a finite number between 0 and 1.")
+    if not math.isfinite(float(max_missing_ratio)) or not 0 <= max_missing_ratio <= 1:
         raise ValueError("max_missing_ratio must be between 0 and 1.")
-    if source_size_bytes is not None and source_size_bytes < 0:
-        raise ValueError("source_size_bytes cannot be negative.")
+    if source_size_bytes is not None:
+        if isinstance(source_size_bytes, bool) or not isinstance(source_size_bytes, Integral):
+            raise TypeError("source_size_bytes must be a non-negative integer or None.")
+        if source_size_bytes < 0:
+            raise ValueError("source_size_bytes cannot be negative.")
 
     config = config or CleaningConfig()
     source_validation = validate_dataframe(df, allow_empty=True)
