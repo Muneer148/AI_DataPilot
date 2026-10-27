@@ -288,8 +288,12 @@ def test_missing_scalar_filters_require_explicit_null_operators():
 
 def test_real_data_foundation_contract_is_consumed_when_available():
     # This test is skipped on the isolated analytics branch and exercised in PR integration.
-    data_module = pytest.importorskip("src.data")
-    prepared = data_module.prepare_dataset(
+    try:
+        from src.data import prepare_dataset
+    except ImportError:
+        pytest.skip("Member 1's data module is only available in the integrated PR branch.")
+
+    prepared = prepare_dataset(
         pd.DataFrame({"region": ["East", "West"], "sales": [10, 20]})
     )
 
