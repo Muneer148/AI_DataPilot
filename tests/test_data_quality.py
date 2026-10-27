@@ -21,6 +21,21 @@ def test_validation_reports_missing_values_and_duplicates():
     assert any(issue.code == "DUPLICATE_ROWS" for issue in report.warnings)
 
 
+def test_validation_handles_duplicate_labels_with_mixed_dtypes_and_infinity():
+    df = pd.DataFrame(
+        [[1, "ok"], [np.inf, "still ok"]],
+        columns=["value", "value"],
+    )
+
+    report = validate_dataframe(df)
+
+    assert not report.valid
+    assert any(issue.code == "DUPLICATE_COLUMN_NAMES" for issue in report.errors)
+    infinite_issues = [issue for issue in report.warnings if issue.code == "INFINITE_VALUES"]
+    assert len(infinite_issues) == 1
+    assert infinite_issues[0].column == "value"
+
+
 def test_validation_rejects_duplicate_column_names():
     report = validate_dataframe(pd.DataFrame([[1, 2]], columns=["value", "value"]))
     assert not report.valid

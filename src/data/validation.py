@@ -133,10 +133,27 @@ def validate_dataframe(
             _issue("warning", "DUPLICATE_ROWS", f"Dataset contains {duplicate_rows} duplicate row(s).")
         )
 
-    numeric_columns = df.select_dtypes(include="number").columns
-    for position, column in enumerate(numeric_columns):
-        values = df[column].to_numpy(dtype=float, na_value=np.nan)
+    # Iterate by position rather than column label. With duplicate labels,
+    # df[column] can return a DataFrame containing non-numeric columns too,
+    # even when the selected occurrence is numeric.
+    for position in range(df.shape[1]):
+        series = df.iloc[:, position]
+        if not pd.api.types.is_numeric_dtype(series.dtype):
+            continue
+
+        if pd.api.types.is_complex_dtype(series.dtype):
+            values = series.to_numpy(dtype=complex, na_value=complex(np.nan, np.nan))
+        else:
+            values = series.to_numpy(dtype=float, na_value=np.nan)
+
         if np.isinf(values).any():
-            issues.append(_issue("warning", "INFINITE_VALUES", "Numeric column contains infinite values.", str(column)))
+            issues.append(
+                _issue(
+                    "warning",
+                    "INFINITE_VALUES",
+                    "Numeric column contains infinite values.",
+                    str(df.columns[position]),
+                )
+            )
 
     return ValidationReport(tuple(issues))
