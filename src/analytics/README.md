@@ -19,7 +19,7 @@ Member 1 owns ingestion, cleaning, validation, schema, profiling and provenance.
 - build_chart_spec(result, chart_type="bar", x=..., y=..., max_points=100)
 - build_figure(result, chart_type="bar", x=..., y=..., max_points=100)
 
-All analytics functions accept a pandas DataFrame or a prepared data-layer object exposing a DataFrame as .dataframe. Provenance and available validation warnings are carried forward. The prepared object is duck-typed so this branch does not duplicate Member 1's module.
+All analytics functions accept a pandas DataFrame or a prepared data-layer object exposing a DataFrame as .dataframe. Provenance and available validation warnings are carried forward. The prepared object is duck-typed so this branch does not duplicate Member 1's module. A contract integration test runs when `src.data` is present in the combined PR environment and skips on the isolated analytics branch.
 
 Each analytics call returns AnalyticsResult. Use result.to_dict() for JSON-friendly data or result.to_json() for strict JSON. Invalid requests raise AnalyticsError with a stable code, message and details.
 

@@ -284,3 +284,25 @@ def test_missing_scalar_filters_require_explicit_null_operators():
                 aggregations={"value": "count"},
                 filters=[{"column": "value", "operator": "eq", "value": missing}],
             )
+
+
+def test_real_data_foundation_contract_is_consumed_when_available():
+    # This test is skipped on the isolated analytics branch and exercised in PR integration.
+    data_module = pytest.importorskip("src.data")
+    prepared = data_module.prepare_dataset(
+        pd.DataFrame({"region": ["East", "West"], "sales": [10, 20]})
+    )
+
+    result = describe_dataset(prepared, columns=["sales"])
+
+    assert result.row_count == 2
+    assert result.records[0]["sum"] == 30
+    assert result.provenance["source_name"] == "in-memory dataset"
+
+
+def test_analytics_error_details_are_strict_json_serializable():
+    import json
+
+    error = AnalyticsError("invalid request", details={"bad_number": np.inf})
+    error_json = json.dumps(error.to_dict(), allow_nan=False)
+    assert '"bad_number": null' in error_json
