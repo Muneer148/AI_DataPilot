@@ -172,14 +172,19 @@ def test_outliers_reject_non_numeric_and_results_are_strict_json():
     assert "NaN" not in result.to_json()
 
 
-def test_contains_filter_rejects_all_null_non_string_column_cleanly():
-    from src.analytics import aggregate_dataset
-    with pytest.raises(AnalyticsError, match="contains filters"):
-        aggregate_dataset(
-            pd.DataFrame({"label": pd.Series([None, None], dtype=object), "value": [1, 2]}),
-            group_by=["label"],
-            filters=[{"column": "label", "operator": "contains", "value": "a"}],
-        )
+def test_contains_filter_on_all_null_column_returns_empty_result():
+    frame = pd.DataFrame({
+        "label": pd.Series([None, None], dtype=object),
+        "value": [1, 2],
+    })
+    result = aggregate_dataset(
+        frame,
+        aggregations={"value": "sum"},
+        filters=[{"column": "label", "operator": "contains", "value": "a"}],
+    )
+
+    assert result.row_count == 0
+    assert result.records == [{"row_count": 0, "value__sum": None}]
 
 
 def test_correlation_pair_output_is_bounded():
