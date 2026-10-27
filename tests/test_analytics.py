@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from src.analytics import AnalyticsError, aggregate_dataset, correlate_dataset, describe_dataset, detect_outliers, trend_dataset
+from src.visualization import build_chart_spec
 
 
 def sales_frame():
@@ -307,6 +308,80 @@ def test_real_data_foundation_contract_is_consumed_when_available():
     assert result.row_count == 2
     assert result.records[0]["sum"] == 30
     assert result.provenance["source_name"] == "in-memory dataset"
+
+
+def test_real_data_foundation_contract_supports_all_analytics_and_charts():
+    # The isolated analytics branch skips this; PR-context CI runs the real data layer.
+    try:
+        from src.data import prepare_dataset
+    except ImportError:
+        pytest.skip("Member 1's data module is only available in the integrated PR branch.")
+
+    source = pd.DataFrame({
+        "region": ["East", "West", "East"],
+        "sales": [10, 20, 30],
+        "units": [1, 2, 3],
+        "date": ["2025-01-01", "2025-01-02", "2025-01-03"],
+    })
+    source_before = source.copy(deep=True)
+    prepared = prepare_dataset(source)
+    prepared_before = prepared.dataframe.copy(deep=True)
+
+    description = describe_dataset(prepared, columns=["sales"])
+    assert description.records[0]["sum"] == 60
+    assert description.provenance["source_name"] == "in-memory dataset"
+
+    summary = aggregate_dataset(
+        prepared,
+        group_by=["region"],
+        aggregations={"sales": "sum"},
+        filters=[{"column": "sales", "operator": "gte", "value": 20}],
+        sort_by="sales__sum",
+        ascending=False,
+    )
+    assert [(row["region"], row["sales__sum"]) for row in summary.records] == [
+        ("East", 30),
+        ("West", 20),
+    ]
+    chart = build_chart_spec(summary, x="region", y="sales__sum")
+    assert chart["data"] == [
+        {"x": row["region"], "y": row["sales__sum"]} for row in summary.records
+    ]
+
+    correlation = correlate_dataset(prepared, columns=["sales", "units"])
+    assert correlation.records[0]["correlation"] == pytest.approx(1.0)
+    assert correlation.records[0]["sample_size"] == 3
+
+    trend = trend_dataset(
+        prepared, time_column="date", value_column="sales", interval="day"
+    )
+    assert [row["value"] for row in trend.records] == [10, 20, 30]
+
+    with pytest.raises(AnalyticsError, match="Unknown column"):
+        describe_dataset(prepared, columns=["not_a_column"])
+
+    pd.testing.assert_frame_equal(source, source_before)
+    pd.testing.assert_frame_equal(prepared.dataframe, prepared_before)
+
+
+def test_numeric_sums_do_not_overflow_int64():
+    expected_sum = 2**63
+    frame = pd.DataFrame({
+        "value": pd.Series([2**62, 2**62], dtype="int64"),
+        "date": ["2025-03-01", "2025-03-01"],
+    })
+    before = frame.copy(deep=True)
+
+    description = describe_dataset(frame, columns=["value"])
+    aggregation = aggregate_dataset(frame, aggregations={"value": "sum"})
+    trend = trend_dataset(
+        frame, time_column="date", value_column="value", interval="day"
+    )
+
+    assert description.records[0]["sum"] == expected_sum
+    assert aggregation.records[0]["value__sum"] == expected_sum
+    assert trend.records[0]["value"] == expected_sum
+    pd.testing.assert_frame_equal(frame, before)
 
 
 def test_analytics_error_details_are_strict_json_serializable():
