@@ -389,7 +389,7 @@ def test_aggregation_rejects_output_name_collision_and_unhashable_filter_values(
             frame, group_by=["sales__sum"], aggregations={"sales": "sum"}
         )
 
-    with pytest.raises(AnalyticsError, match="Filter value is incompatible|INVALID_FILTER_VALUE"):
+    with pytest.raises(AnalyticsError, match="must be hashable"):
         aggregate_dataset(
             pd.DataFrame({"sales": [10, 20]}),
             filters=[{"column": "sales", "operator": "in", "value": [[10]]}],
