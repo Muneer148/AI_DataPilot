@@ -96,6 +96,30 @@ def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, ti
         if len(records) > max_points:
             warnings.append(f"Chart data was limited to {max_points} of {len(records)} result records.")
         bounded_records = records[:max_points]
+        for index, row in enumerate(bounded_records):
+            x_value = json_safe(row.get(x))
+            if x_value is not None and not isinstance(
+                x_value, (str, int, float, bool)
+            ):
+                raise AnalyticsError(
+                    "Chart x values must be scalar strings, numbers, booleans, or null",
+                    code="INVALID_CHART_VALUES",
+                    details={"field": x, "record_index": index},
+                )
+
+            y_value = json_safe(row.get(y))
+            if chart_type != "pie" and y_value is not None:
+                valid_numeric = (
+                    isinstance(y_value, numbers.Real)
+                    and not isinstance(y_value, bool)
+                )
+                if not valid_numeric:
+                    raise AnalyticsError(
+                        "Bar, line, and scatter charts require numeric or null y values",
+                        code="INVALID_CHART_VALUES",
+                        details={"field": y, "record_index": index},
+                    )
+
         if chart_type == "pie":
             for index, row in enumerate(bounded_records):
                 value = row.get(y)
