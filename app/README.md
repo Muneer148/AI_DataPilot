@@ -3,6 +3,8 @@
 > **Owns:** the user-facing workflow and the reliable connection between data preparation, agent planning, analytics, and results.
 >
 > **Project:** AI_DataPilot · **Target branch:** `feature/application`
+>
+> **Project roadmap:** 25 weeks total; see the [root README](../README.md) for milestones and four-member ownership.
 
 ## 1. Why this feature exists
 
@@ -34,7 +36,7 @@ Keep the initial version small: one uploaded dataset per session, a preview-firs
 
 ## 3. Integration contract
 
-The data foundation target is `feature/data-foundation`, latest documented commit `43a96ea444abcb9a927e88a7abdad025d70d4480`. Before implementation, bring the latest data foundation into your working branch through the team's agreed merge/rebase workflow.
+The data foundation target is the current `feature/data-foundation` branch. Check its latest commit and CI result before implementation; do not pin integration to an older documented commit. Bring the current branch into your working branch through the team's agreed merge/rebase workflow.
 
 The data API is exported by `src.data`:
 
