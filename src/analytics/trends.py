@@ -26,6 +26,13 @@ def trend_dataset(
     limit = validate_limit(limit)
     if not isinstance(timezone, str) or not timezone.strip():
         raise AnalyticsError("timezone must be a valid timezone name", code="INVALID_TIMEZONE")
+    raw_time = dataframe[time_column]
+    if pd.api.types.is_numeric_dtype(raw_time.dtype) or pd.api.types.is_bool_dtype(raw_time.dtype):
+        raise AnalyticsError(
+            "time_column must contain datetime-like values or parseable date strings, not numeric values",
+            code="NON_DATETIME_COLUMN",
+            details={"column": time_column, "dtype": str(raw_time.dtype)},
+        )
     values, non_finite = finite_numeric_series(dataframe[value_column], value_column)
     try:
         timestamps = pd.to_datetime(dataframe[time_column], errors="coerce", utc=True)

@@ -46,8 +46,9 @@ def _apply_filters(dataframe: pd.DataFrame, filters: Sequence[Mapping[str, Any]]
             elif operator == "not_null":
                 mask = series.notna()
             else:
-                if not isinstance(value, str) or not series.dropna().map(lambda x: isinstance(x, str)).all():
-                    raise AnalyticsError("contains filters require a string column and a string value", code="INVALID_FILTER_VALUE")
+                non_null = series.dropna()
+                if not isinstance(value, str) or non_null.empty or not non_null.map(lambda x: isinstance(x, str)).all():
+                    raise AnalyticsError("contains filters require a non-empty string column and a string value", code="INVALID_FILTER_VALUE")
                 mask = series.str.contains(value, regex=False, na=False)
         except AnalyticsError:
             raise

@@ -170,3 +170,28 @@ def test_outliers_reject_non_numeric_and_results_are_strict_json():
     result = describe_dataset(pd.DataFrame({"value": [1.0, np.inf, np.nan]}))
     assert "Infinity" not in result.to_json()
     assert "NaN" not in result.to_json()
+
+
+def test_contains_filter_rejects_all_null_non_string_column_cleanly():
+    from src.analytics import aggregate_dataset
+    with pytest.raises(AnalyticsError, match="contains filters"):
+        aggregate_dataset(
+            pd.DataFrame({"label": pd.Series([None, None], dtype=object), "value": [1, 2]}),
+            group_by=["label"],
+            filters=[{"column": "label", "operator": "contains", "value": "a"}],
+        )
+
+
+def test_correlation_pair_output_is_bounded():
+    frame = pd.DataFrame({f"c{i}": [1.0, 2.0, 4.0] for i in range(50)})
+    result = correlate_dataset(frame, max_pairs=10)
+    assert result.metrics["pair_count"] == 50 * 49 // 2
+    assert result.metrics["returned_pair_count"] == 10
+    assert len(result.records) == 10
+    assert any("only the first 10 pairs" in warning for warning in result.warnings)
+
+
+def test_trend_rejects_numeric_timestamp_input():
+    frame = pd.DataFrame({"timestamp": [1, 2], "value": [10, 20]})
+    with pytest.raises(AnalyticsError, match="numeric values"):
+        trend_dataset(frame, time_column="timestamp", value_column="value")
