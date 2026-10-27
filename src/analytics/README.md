@@ -49,6 +49,92 @@ figure = build_figure(summary, chart_type="bar", x="region", y="sales__sum")
 figure.write_html("sales_by_region.html")
 ~~~
 
+## Module map for project review
+
+- `contracts.py`: Defines `AnalyticsError`, `AnalyticsResult`, JSON-safe conversion, prepared-dataset extraction, numeric filtering, column checks, and result-limit checks.
+- `descriptive.py`: Implements `describe_dataset` for row counts, missingness, finite numeric summaries, and quantiles.
+- `aggregation.py`: Implements `aggregate_dataset` for filters, grouping, summary operations, stable sorting, and bounded records.
+- `relationships.py`: Implements `correlate_dataset` for pairwise Pearson, Spearman, or Kendall correlations with pair-specific sample counts.
+- `trends.py`: Implements `trend_dataset` for aggregating a numeric measure into time buckets.
+- `outliers.py`: Implements `detect_outliers` with IQR fences or absolute population z-scores.
+- `src/visualization/charts.py`: Implements `build_chart_spec` and `build_figure`. It plots returned analytics records; it does not repeat the statistical calculation.
+- `tests/test_analytics.py` and `tests/test_visualization.py`: Contain deterministic examples and regression tests for the contracts above.
+
+## Minimal examples for each capability
+
+All examples can be run from the repository root. They use a small DataFrame and need no LLM or API key.
+
+~~~python
+import pandas as pd
+from src.analytics import (
+    aggregate_dataset,
+    correlate_dataset,
+    describe_dataset,
+    detect_outliers,
+    trend_dataset,
+)
+from src.visualization import build_chart_spec, build_figure
+
+sales = pd.DataFrame({
+    "region": ["East", "West", "East", "West"],
+    "sales": [100.0, 80.0, 120.0, 200.0],
+    "units": [2, 2, 3, 5],
+    "date": ["2025-01-01", "2025-01-02", "2025-02-01", "2025-02-02"],
+})
+
+# 1. Describe selected columns.
+description = describe_dataset(sales, columns=["sales"])
+print(description.to_dict()["records"])
+
+# 2. Filter rows, group by region, and sum sales.
+summary = aggregate_dataset(
+    sales,
+    group_by=["region"],
+    aggregations={"sales": "sum"},
+    filters=[{"column": "sales", "operator": "gte", "value": 100}],
+    sort_by="sales__sum",
+    ascending=False,
+)
+print(summary.to_dict()["records"])
+
+# 3. Measure a relationship between numeric columns.
+correlations = correlate_dataset(
+    sales, columns=["sales", "units"], method="pearson"
+)
+print(correlations.to_dict()["records"])
+
+# 4. Aggregate sales into monthly time buckets.
+monthly = trend_dataset(
+    sales, time_column="date", value_column="sales",
+    interval="month", aggregation="sum", timezone="UTC",
+)
+print(monthly.to_dict()["records"])
+
+# 5. Flag unusual sales values for review.
+outliers = detect_outliers(sales, column="sales", method="iqr")
+print(outliers.to_dict()["records"])
+
+# 6. Use the exact values from an analytics result to make a chart.
+spec = build_chart_spec(summary, chart_type="bar", x="region", y="sales__sum")
+figure = build_figure(summary, chart_type="bar", x="region", y="sales__sum")
+figure.write_html("sales_by_region.html")
+~~~
+
+## Result shape and error handling
+
+Every analytics function returns an `AnalyticsResult` with these fields:
+
+- `operation`: stable operation name such as `describe`, `aggregate`, `correlation`, `trend`, or `outliers`.
+- `columns`: source or output columns relevant to the operation.
+- `row_count`: the number of rows considered by that operation (see each function's assumptions and metrics for more detail).
+- `records`: a list of dictionaries containing returned values.
+- `metrics`: operation totals such as possible correlation pairs or outlier candidates.
+- `parameters`: normalized options used for the calculation.
+- `warnings` and `assumptions`: information callers should retain when explaining a result.
+- `provenance`: the prepared dataset's provenance when supplied by the data layer; it is `None` for a bare DataFrame.
+
+Use `result.to_dict()` for JSON-friendly Python values or `result.to_json()` for strict JSON text. Missing and non-finite values are represented as JSON `null`; result errors use `AnalyticsError`, whose `code`, message, and JSON-safe details can be returned to an API client. Do not silently discard warnings: they can explain skipped rows or truncated results.
+
 ## Numerical and privacy policies
 
 - Missing ratios use all rows as the denominator. An empty dataset has a zero missing ratio.
