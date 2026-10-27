@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from numbers import Integral
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -64,13 +65,23 @@ class AnalysisReadyDataset:
             raise KeyError(f"Columns not found: {missing}")
         return self.dataframe.loc[:, selected].copy()
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return the contract metadata, excluding raw row records."""
+    def to_dict(self, *, include_value_examples: bool = False) -> dict[str, Any]:
+        """Return contract metadata without row records or sample values by default.
+
+        Profile examples and frequent values can contain sensitive data (for
+        example, email addresses or account identifiers). Include them only
+        when the caller has explicitly chosen to expose those values.
+        """
+        profile = self.profile.to_dict()
+        if not include_value_examples:
+            for column in profile["column_profiles"]:
+                column.pop("example_values", None)
+                column.pop("top_values", None)
         return {
             "rows": self.rows,
             "columns": self.columns,
             "metadata": self.metadata.to_dict(),
-            "profile": self.profile.to_dict(),
+            "profile": profile,
             "validation": self.validation.to_dict(),
             "source_validation": self.source_validation.to_dict() if self.source_validation else None,
             "cleaning": self.cleaning.to_dict(),
@@ -143,8 +154,11 @@ def prepare_dataset(
     """Clean, validate, profile and package a DataFrame with provenance."""
     if not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame.")
-    if source_size_bytes is not None and source_size_bytes < 0:
-        raise ValueError("source_size_bytes cannot be negative.")
+    if source_size_bytes is not None:
+        if isinstance(source_size_bytes, bool) or not isinstance(source_size_bytes, Integral):
+            raise TypeError("source_size_bytes must be a non-negative integer or None.")
+        if source_size_bytes < 0:
+            raise ValueError("source_size_bytes cannot be negative.")
 
     config = config or CleaningConfig()
     source_validation = validate_dataframe(df, allow_empty=True)
