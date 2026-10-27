@@ -3,6 +3,8 @@
 > **Owns:** turning a user's natural-language question into a safe, executable analysis plan, then explaining the verified result.
 >
 > **Project:** AI_DataPilot · **Target branch:** `feature/ai-agent`
+>
+> **Project roadmap:** 25 weeks total; see the [root README](../../README.md) for milestones and four-member ownership.
 
 ## 1. Why this feature exists
 
@@ -34,7 +36,7 @@ Member 1 owns ingestion, cleaning, validation, profiling and the analysis-ready 
 
 ## 3. Data contract to integrate with
 
-The integration target is the data foundation on `feature/data-foundation` (latest documented commit: `43a96ea444abcb9a927e88a7abdad025d70d4480`). Before implementing, bring the current data-foundation branch into your working branch through the team's agreed merge/rebase workflow.
+The integration target is the data foundation on `feature/data-foundation` (use the current branch head; check the latest commit and CI result before integration). Before implementing, bring the current data-foundation branch into your working branch through the team's agreed merge/rebase workflow.
 
 The public API is exported from `src.data`:
 
