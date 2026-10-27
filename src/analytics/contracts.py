@@ -148,7 +148,8 @@ def sum_numeric_values(series: pd.Series) -> int | float:
     if pd.api.types.is_integer_dtype(values.dtype):
         # Convert each value to a Python int before adding; NumPy integer sums can wrap.
         return sum(int(value) for value in values)
-    return values.sum(min_count=1)
+    total = values.sum(min_count=1)
+    return total.item() if isinstance(total, np.generic) else total
 
 
 def validate_limit(limit: Any, *, parameter: str = "limit") -> int:
