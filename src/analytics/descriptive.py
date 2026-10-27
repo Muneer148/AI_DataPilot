@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -33,8 +33,11 @@ def describe_dataset(
         if len(selected) > max_columns:
             warnings.append(f"Only the first {max_columns} requested columns were summarized.")
             selected = selected[:max_columns]
-    if isinstance(quantiles, (str, bytes)):
-        raise AnalyticsError("quantiles must be a sequence of numbers", code="INVALID_QUANTILES")
+    if isinstance(quantiles, (str, bytes, Mapping, set, frozenset)):
+        raise AnalyticsError(
+            "quantiles must be an ordered sequence of numbers",
+            code="INVALID_QUANTILES",
+        )
     try:
         qs = [float(q) for q in quantiles]
     except (TypeError, ValueError) as exc:

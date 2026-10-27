@@ -19,10 +19,16 @@ def trend_dataset(
     selected = validate_columns(dataframe, [time_column, value_column])
     if time_column == value_column:
         raise AnalyticsError("time_column and value_column must differ", code="INVALID_TIME_COLUMNS")
-    if interval not in INTERVALS:
-        raise AnalyticsError(f"interval must be one of {sorted(INTERVALS)}", code="INVALID_TIME_INTERVAL")
-    if aggregation not in TREND_AGGREGATIONS:
-        raise AnalyticsError(f"aggregation must be one of {sorted(TREND_AGGREGATIONS)}", code="INVALID_AGGREGATION")
+    if not isinstance(interval, str) or interval not in INTERVALS:
+        raise AnalyticsError(
+            f"interval must be one of {sorted(INTERVALS)}",
+            code="INVALID_TIME_INTERVAL",
+        )
+    if not isinstance(aggregation, str) or aggregation not in TREND_AGGREGATIONS:
+        raise AnalyticsError(
+            f"aggregation must be one of {sorted(TREND_AGGREGATIONS)}",
+            code="INVALID_AGGREGATION",
+        )
     limit = validate_limit(limit)
     if not isinstance(timezone, str) or not timezone.strip():
         raise AnalyticsError("timezone must be a valid timezone name", code="INVALID_TIMEZONE")
@@ -41,7 +47,7 @@ def trend_dataset(
     except (TypeError, ValueError, KeyError) as exc:
         raise AnalyticsError(f"Could not interpret timezone '{timezone}'", code="INVALID_TIMEZONE", details={"timezone": timezone}) from exc
     invalid_times = int(timestamps.isna().sum())
-    invalid_values = int((values.isna() & dataframe[value_column].notna()).sum())
+    missing_values = int(dataframe[value_column].isna().sum())
     valid = timestamps.notna() & values.notna()
     work = pd.DataFrame({"_timestamp": timestamps.loc[valid], "_value": values.loc[valid]})
     grouped = work.groupby(pd.Grouper(key="_timestamp", freq=INTERVALS[interval]))["_value"]
@@ -58,8 +64,8 @@ def trend_dataset(
         records = records[-limit:]
     if invalid_times:
         warnings.append(f"{invalid_times} row(s) had invalid or missing timestamps and were skipped.")
-    if invalid_values:
-        warnings.append(f"{invalid_values} row(s) had missing or non-finite measures and were skipped.")
+    if missing_values:
+        warnings.append(f"{missing_values} row(s) had missing measures and were skipped.")
     if non_finite:
         warnings.append(f"Column '{value_column}' has {non_finite} infinite value(s), excluded from the trend.")
     if work.empty:

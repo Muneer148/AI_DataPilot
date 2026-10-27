@@ -14,8 +14,11 @@ NUMERIC_AGGREGATIONS = {"sum", "mean", "median", "std"}
 def _apply_filters(dataframe: pd.DataFrame, filters: Sequence[Mapping[str, Any]] | None):
     if filters is None:
         return dataframe.copy(), []
-    if isinstance(filters, (str, bytes, Mapping)):
-        raise AnalyticsError("filters must be a sequence of filter objects", code="INVALID_FILTERS")
+    if not isinstance(filters, Sequence) or isinstance(filters, (str, bytes, Mapping)):
+        raise AnalyticsError(
+            "filters must be a list or tuple of filter objects",
+            code="INVALID_FILTERS",
+        )
     work = dataframe.copy()
     normalized = []
     allowed = {"eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "is_null", "not_null", "contains"}
@@ -25,14 +28,26 @@ def _apply_filters(dataframe: pd.DataFrame, filters: Sequence[Mapping[str, Any]]
         column, operator, value = item.get("column"), item.get("operator"), item.get("value")
         if not isinstance(column, str) or column not in dataframe.columns:
             raise AnalyticsError(f"Unknown filter column: {column!r}", code="UNKNOWN_COLUMN", details={"filter_index": i, "column": column})
-        if operator not in allowed:
-            raise AnalyticsError(f"Unsupported filter operator: {operator!r}", code="INVALID_FILTER_OPERATOR", details={"allowed": sorted(allowed)})
+        if not isinstance(operator, str) or operator not in allowed:
+            raise AnalyticsError(
+                f"Unsupported filter operator: {operator!r}",
+                code="INVALID_FILTER_OPERATOR",
+                details={"allowed": sorted(allowed)},
+            )
         series = work[column]
         try:
+            if operator in {"eq", "ne", "gt", "gte", "lt", "lte"} and not pd.api.types.is_scalar(value):
+                raise AnalyticsError(
+                    "Comparison filter values must be scalar",
+                    code="INVALID_FILTER_VALUE",
+                    details={"filter_index": i, "operator": operator},
+                )
             if operator in {"eq", "ne"}:
                 if value is None:
                     raise AnalyticsError("Use is_null or not_null to filter missing values", code="INVALID_FILTER_VALUE")
-                mask = (series.eq(value) if operator == "eq" else series.ne(value)).fillna(False)
+                comparison = series.eq(value) if operator == "eq" else series.ne(value)
+                # Missing values should use is_null/not_null, not eq/ne.
+                mask = comparison.fillna(False) & series.notna()
             elif operator in {"gt", "gte", "lt", "lte"}:
                 mask = {"gt": series.gt, "gte": series.ge, "lt": series.lt, "lte": series.le}[operator](value).fillna(False)
             elif operator in {"in", "not_in"}:
@@ -40,7 +55,8 @@ def _apply_filters(dataframe: pd.DataFrame, filters: Sequence[Mapping[str, Any]]
                     raise AnalyticsError(f"{operator} value must be a list, tuple or set", code="INVALID_FILTER_VALUE")
                 mask = series.isin(list(value))
                 if operator == "not_in":
-                    mask = ~mask
+                    # Keep missing values out of negative membership filters too.
+                    mask = ~mask & series.notna()
             elif operator == "is_null":
                 mask = series.isna()
             elif operator == "not_null":
@@ -115,14 +131,36 @@ def aggregate_dataset(
     normalized_aggs = {}
     for column, ops in aggregations.items():
         validate_columns(dataframe, [column], parameter="aggregations")
-        operation_list = [ops] if isinstance(ops, str) else list(ops) if isinstance(ops, Sequence) and not isinstance(ops, (str, bytes)) else None
+        if isinstance(ops, str):
+            operation_list = [ops]
+        elif isinstance(ops, Sequence) and not isinstance(ops, (str, bytes)):
+            operation_list = list(ops)
+        else:
+            operation_list = None
+
         if not operation_list:
-            raise AnalyticsError(f"Aggregations for '{column}' must be a name or non-empty sequence", code="INVALID_AGGREGATIONS")
+            raise AnalyticsError(
+                f"Aggregations for '{column}' must be a name or non-empty sequence",
+                code="INVALID_AGGREGATIONS",
+            )
+        if any(not isinstance(operation, str) for operation in operation_list):
+            raise AnalyticsError(
+                f"Aggregation names for '{column}' must be strings",
+                code="INVALID_AGGREGATIONS",
+                details={"column": column},
+            )
         if len(set(operation_list)) != len(operation_list):
-            raise AnalyticsError(f"Duplicate aggregation names for '{column}'", code="DUPLICATE_AGGREGATIONS")
+            raise AnalyticsError(
+                f"Duplicate aggregation names for '{column}'",
+                code="DUPLICATE_AGGREGATIONS",
+            )
         for operation in operation_list:
             if operation not in SUPPORTED_AGGREGATIONS:
-                raise AnalyticsError(f"Unsupported aggregation '{operation}'", code="INVALID_AGGREGATION", details={"allowed": sorted(SUPPORTED_AGGREGATIONS)})
+                raise AnalyticsError(
+                    f"Unsupported aggregation '{operation}'",
+                    code="INVALID_AGGREGATION",
+                    details={"allowed": sorted(SUPPORTED_AGGREGATIONS)},
+                )
             series = dataframe[column]
             if operation in NUMERIC_AGGREGATIONS and (not pd.api.types.is_numeric_dtype(series.dtype) or pd.api.types.is_bool_dtype(series.dtype) or pd.api.types.is_complex_dtype(series.dtype)):
                 raise AnalyticsError(f"Aggregation '{operation}' requires a real numeric column", code="NON_NUMERIC_COLUMN", details={"column": column, "dtype": str(series.dtype)})
@@ -155,8 +193,14 @@ def aggregate_dataset(
         result_frame = pd.DataFrame([row])
 
     if sort_by is not None:
+        if not isinstance(sort_by, str):
+            raise AnalyticsError("sort_by must be a returned column name", code="INVALID_SORT_COLUMN")
         if sort_by not in result_frame.columns:
-            raise AnalyticsError(f"sort_by must be one of {result_frame.columns.tolist()}", code="INVALID_SORT_COLUMN", details={"sort_by": sort_by})
+            raise AnalyticsError(
+                f"sort_by must be one of {result_frame.columns.tolist()}",
+                code="INVALID_SORT_COLUMN",
+                details={"sort_by": sort_by},
+            )
         try:
             result_frame = result_frame.sort_values(sort_by, ascending=ascending, kind="mergesort", na_position="last")
         except (TypeError, ValueError) as exc:

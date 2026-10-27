@@ -14,8 +14,11 @@ SUPPORTED_CORRELATIONS = {"pearson", "spearman", "kendall"}
 def correlate_dataset(dataset: Any, *, columns: Sequence[str] | None = None, method: str = "pearson", min_periods: int = 2, max_pairs: int = 1000) -> AnalyticsResult:
     """Calculate pairwise-complete correlations; correlation does not imply causation."""
     dataframe, provenance, warnings = get_dataset_context(dataset)
-    if method not in SUPPORTED_CORRELATIONS:
-        raise AnalyticsError(f"method must be one of {sorted(SUPPORTED_CORRELATIONS)}", code="INVALID_CORRELATION_METHOD")
+    if not isinstance(method, str) or method not in SUPPORTED_CORRELATIONS:
+        raise AnalyticsError(
+            f"method must be one of {sorted(SUPPORTED_CORRELATIONS)}",
+            code="INVALID_CORRELATION_METHOD",
+        )
     if isinstance(min_periods, bool) or not isinstance(min_periods, int) or min_periods < 2:
         raise AnalyticsError("min_periods must be an integer of at least 2", code="INVALID_MIN_PERIODS")
     max_pairs = validate_limit(max_pairs, parameter="max_pairs")

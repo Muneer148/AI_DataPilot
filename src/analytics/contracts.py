@@ -108,8 +108,12 @@ def get_dataset_context(dataset: Any) -> tuple[pd.DataFrame, Any, list[str]]:
 
 
 def validate_columns(dataframe: pd.DataFrame, columns: Any, *, parameter: str = "columns", allow_empty: bool = False) -> list[str]:
-    if isinstance(columns, str):
-        raise AnalyticsError(f"{parameter} must be a sequence of column names", code="INVALID_COLUMNS", details={"parameter": parameter})
+    if isinstance(columns, (str, bytes, Mapping, set, frozenset)):
+        raise AnalyticsError(
+            f"{parameter} must be an ordered sequence of column names",
+            code="INVALID_COLUMNS",
+            details={"parameter": parameter},
+        )
     try:
         selected = list(columns)
     except TypeError as exc:

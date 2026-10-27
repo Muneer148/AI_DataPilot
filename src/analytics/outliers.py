@@ -16,8 +16,11 @@ def detect_outliers(dataset: Any, *, column: str, method: str = "iqr", threshold
     """
     dataframe, provenance, warnings = get_dataset_context(dataset)
     validate_columns(dataframe, [column])
-    if method not in {"iqr", "zscore"}:
-        raise AnalyticsError("method must be 'iqr' or 'zscore'", code="INVALID_OUTLIER_METHOD")
+    if not isinstance(method, str) or method not in {"iqr", "zscore"}:
+        raise AnalyticsError(
+            "method must be 'iqr' or 'zscore'",
+            code="INVALID_OUTLIER_METHOD",
+        )
     if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not np.isfinite(threshold) or threshold <= 0:
         raise AnalyticsError("threshold must be a positive finite number", code="INVALID_THRESHOLD")
     max_results = validate_limit(max_results)
@@ -32,6 +35,8 @@ def detect_outliers(dataset: Any, *, column: str, method: str = "iqr", threshold
         warnings.append("No finite numeric observations were available.")
         flagged = np.zeros(len(dataframe), dtype=bool)
     elif method == "iqr":
+        if count < 2:
+            warnings.append("At least two finite observations are recommended for IQR analysis.")
         q1, q3 = np.quantile(sample, [0.25, 0.75])
         scale = float(q3 - q1)
         lower, upper = float(q1 - threshold * scale), float(q3 + threshold * scale)
