@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
+from numbers import Real
 from typing import Any, Iterable
 
 import numpy as np
@@ -65,7 +67,9 @@ def validate_dataframe(
             (_issue("error", "NOT_DATAFRAME", "Expected a pandas DataFrame."),)
         )
 
-    if not 0 <= max_missing_ratio <= 1:
+    if isinstance(max_missing_ratio, bool) or not isinstance(max_missing_ratio, Real):
+        raise TypeError("max_missing_ratio must be a finite number between 0 and 1.")
+    if not math.isfinite(float(max_missing_ratio)) or not 0 <= max_missing_ratio <= 1:
         raise ValueError("max_missing_ratio must be between 0 and 1.")
 
     if df.empty:
@@ -91,7 +95,14 @@ def validate_dataframe(
             _issue("error", "BLANK_COLUMN_NAME", f"Blank or invalid column names found: {blank_columns}.")
         )
 
-    required = list(required_columns or [])
+    if isinstance(required_columns, (str, bytes)):
+        raise TypeError("required_columns must be an iterable of column names, not a string.")
+    try:
+        required = list(required_columns) if required_columns is not None else []
+    except TypeError as exc:
+        raise TypeError("required_columns must be an iterable of column names.") from exc
+    if any(not isinstance(column, str) for column in required):
+        raise TypeError("required_columns entries must all be strings.")
     missing_required = [column for column in required if column not in df.columns]
     for column in missing_required:
         issues.append(
