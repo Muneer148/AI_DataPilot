@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, json_safe, validate_columns, validate_limit
+from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, json_safe, sum_numeric_values, validate_columns, validate_limit
 
 INTERVALS = {"hour": "h", "day": "D", "week": "W", "month": "MS", "quarter": "QS", "year": "YS"}
 TREND_AGGREGATIONS = {"count", "sum", "mean", "median", "min", "max"}
@@ -54,7 +54,7 @@ def trend_dataset(
     if aggregation == "count":
         result = grouped.count()
     elif aggregation == "sum":
-        result = grouped.agg(lambda items: items.sum(min_count=1))
+        result = grouped.agg(sum_numeric_values)
     else:
         result = grouped.agg(aggregation)
     records = [{"period": json_safe(period), "value": json_safe(value)} for period, value in result.items()]
