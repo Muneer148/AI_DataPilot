@@ -127,7 +127,7 @@ def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, ti
                 )
 
             raw_y = row.get(y)
-            if (
+            if chart_type != "pie" and (
                 raw_y is not None
                 and isinstance(raw_y, numbers.Real)
                 and not isinstance(raw_y, bool)
