@@ -140,6 +140,17 @@ def finite_numeric_series(series: pd.Series, column: str) -> tuple[pd.Series, in
     return series.where(finite), non_finite
 
 
+def sum_numeric_values(series: pd.Series) -> int | float:
+    """Sum finite numeric values without overflowing fixed-width integer dtypes."""
+    values = series.dropna()
+    if values.empty:
+        return 0
+    if pd.api.types.is_integer_dtype(values.dtype):
+        # Convert each value to a Python int before adding; NumPy integer sums can wrap.
+        return sum(int(value) for value in values)
+    return values.sum(min_count=1)
+
+
 def validate_limit(limit: Any, *, parameter: str = "limit") -> int:
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_RESULT_ROWS:
         raise AnalyticsError(f"{parameter} must be an integer between 1 and {MAX_RESULT_ROWS}", code="INVALID_LIMIT", details={"parameter": parameter, "maximum": MAX_RESULT_ROWS})
