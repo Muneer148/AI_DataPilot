@@ -31,7 +31,7 @@ Member 1 owns data cleaning, quality, schema and provenance. Member 2 owns natur
 
 ## 3. Input contract
 
-The integration target is the data foundation on `feature/data-foundation` (use the current branch head; check the latest commit and CI result before integration). Bring that branch into your working branch using the team's agreed workflow before relying on the API.
+The integration target is the current `feature/data-foundation` branch. Check its latest commit and CI result before relying on the API; do not pin integration to an older documented commit. Bring the current branch into your working branch using the team's agreed workflow.
 
 `AnalysisReadyDataset` is exported from `src.data` and exposes:
 
