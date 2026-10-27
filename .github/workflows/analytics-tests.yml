@@ -2,7 +2,8 @@ name: Analytics-only tests
 
 on:
   push:
-  pull_request:
+    branches:
+      - feature/analytics
   workflow_dispatch:
 
 jobs:

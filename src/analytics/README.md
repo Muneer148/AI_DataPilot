@@ -13,7 +13,7 @@ Member 1 owns ingestion, cleaning, validation, schema, profiling and provenance.
 
 - describe_dataset(dataset, columns=None, quantiles=(0.25, 0.5, 0.75), max_columns=100)
 - aggregate_dataset(dataset, group_by=(), aggregations=None, filters=None, sort_by=None, ascending=False, limit=100)
-- correlate_dataset(dataset, columns=None, method="pearson", min_periods=2)
+- correlate_dataset(dataset, columns=None, method="pearson", min_periods=2, max_pairs=1000, max_columns=100)
 - trend_dataset(dataset, time_column, value_column, interval="day", aggregation="sum", timezone="UTC", limit=1000)
 - detect_outliers(dataset, column, method="iqr", threshold=1.5, max_results=100)
 - build_chart_spec(result, chart_type="bar", x=..., y=..., max_points=100)
@@ -54,8 +54,8 @@ figure.write_html("sales_by_region.html")
 - Missing ratios use all rows as the denominator. An empty dataset has a zero missing ratio.
 - Numeric calculations exclude positive and negative infinity and report or warn about them. Numeric-looking strings are not coerced.
 - Standard deviation uses ddof=1 and is null when fewer than two usable values are available.
-- Aggregation count counts non-null values; row_count counts all filtered rows in each group. Missing grouping keys are retained.
-- Correlation supports Pearson, Spearman and Kendall; it uses pairwise-complete finite observations and reports per-pair sample size. It returns at most 1,000 pairs by default; correlation does not prove causation.
+- Aggregation count counts non-null values; row_count counts all filtered rows in each group. Missing grouping keys are retained. Equality, inequality and negative-membership filters exclude missing values; use is_null/not_null for missingness.
+- Correlation supports Pearson, Spearman and Kendall; it uses pairwise-complete finite observations and reports per-pair sample size. It analyzes at most 100 columns and returns at most 1,000 pairs by default; correlation does not prove causation.
 - Numeric time columns are rejected rather than silently interpreted as nanoseconds. Missing measures and infinite measures are reported separately. Other trend timestamps are parsed with invalid values coerced to missing. Naive timestamps are interpreted as UTC; the requested timezone is applied before hour/day/week/month/quarter/year bucketing.
 - Outlier flags use IQR or population z-score thresholds. They are candidates for investigation, not proof of error or fraud.
 - Result records, returned columns and chart points are bounded. Pie charts require finite, non-negative numeric values. Outlier results omit unrelated row fields.

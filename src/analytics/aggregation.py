@@ -43,8 +43,11 @@ def _apply_filters(dataframe: pd.DataFrame, filters: Sequence[Mapping[str, Any]]
                     details={"filter_index": i, "operator": operator},
                 )
             if operator in {"eq", "ne"}:
-                if value is None:
-                    raise AnalyticsError("Use is_null or not_null to filter missing values", code="INVALID_FILTER_VALUE")
+                if value is None or bool(pd.isna(value)):
+                    raise AnalyticsError(
+                        "Use is_null or not_null to filter missing values",
+                        code="INVALID_FILTER_VALUE",
+                    )
                 comparison = series.eq(value) if operator == "eq" else series.ne(value)
                 # Missing values should use is_null/not_null, not eq/ne.
                 mask = comparison.fillna(False) & series.notna()

@@ -262,3 +262,25 @@ def test_single_value_iqr_analysis_warns_about_small_sample():
     assert result.records == []
     assert result.metrics["sample_size"] == 1
     assert any("At least two finite observations" in warning for warning in result.warnings)
+
+
+def test_correlation_column_and_pair_limits_are_bounded():
+    frame = pd.DataFrame({f"c{i}": [1.0, 2.0, 4.0] for i in range(20)})
+    result = correlate_dataset(frame, max_columns=10, max_pairs=5)
+    assert len(result.columns) == 10
+    assert result.metrics["pair_count"] == 45
+    assert result.metrics["returned_pair_count"] == 5
+    assert result.parameters["max_columns"] == 10
+    assert any("Only the first 10" in warning for warning in result.warnings)
+    assert any("only the first 5 pairs" in warning for warning in result.warnings)
+
+
+def test_missing_scalar_filters_require_explicit_null_operators():
+    frame = pd.DataFrame({"value": [1.0, np.nan, 2.0]})
+    for missing in (None, np.nan, pd.NA, pd.NaT):
+        with pytest.raises(AnalyticsError, match="Use is_null"):
+            aggregate_dataset(
+                frame,
+                aggregations={"value": "count"},
+                filters=[{"column": "value", "operator": "eq", "value": missing}],
+            )
