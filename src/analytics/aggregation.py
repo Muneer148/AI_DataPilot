@@ -56,7 +56,16 @@ def _apply_filters(dataframe: pd.DataFrame, filters: Sequence[Mapping[str, Any]]
             elif operator in {"in", "not_in"}:
                 if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple, set)):
                     raise AnalyticsError(f"{operator} value must be a list, tuple or set", code="INVALID_FILTER_VALUE")
-                mask = series.isin(list(value))
+                membership_values = list(value)
+                try:
+                    for member in membership_values:
+                        hash(member)
+                except TypeError as exc:
+                    raise AnalyticsError(
+                        f"{operator} values must be hashable",
+                        code="INVALID_FILTER_VALUE",
+                    ) from exc
+                mask = series.isin(membership_values)
                 if operator == "not_in":
                     # Keep missing values out of negative membership filters too.
                     mask = ~mask & series.notna()
