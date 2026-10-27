@@ -184,3 +184,22 @@ def test_preview_file_and_prepare_file_share_source_provenance(tmp_path):
     assert prepared.provenance.source_format == "csv"
     assert prepared.provenance.source_size_bytes == path.stat().st_size
     assert prepared.dataframe.equals(preview.cleaned_dataframe)
+
+
+
+def test_cleaning_handles_duplicate_column_labels_when_uniqueness_is_disabled():
+    df = pd.DataFrame(
+        [[" Alice ", " Bob "], ["", "Carol"]],
+        columns=["name", "name"],
+    )
+    original = df.copy(deep=True)
+    config = CleaningConfig(make_column_names_unique=False)
+
+    cleaned, report = clean_dataframe(df, config)
+
+    assert cleaned.columns.tolist() == ["name", "name"]
+    assert cleaned.iloc[0].tolist() == ["Alice", "Bob"]
+    assert pd.isna(cleaned.iloc[1, 0])
+    assert cleaned.iloc[1, 1] == "Carol"
+    assert report.blank_strings_replaced == 1
+    pd.testing.assert_frame_equal(df, original)
