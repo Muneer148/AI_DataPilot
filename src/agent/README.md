@@ -36,7 +36,7 @@ Member 1 owns ingestion, cleaning, validation, profiling and the analysis-ready 
 
 ## 3. Data contract to integrate with
 
-The integration target is the data foundation on `feature/data-foundation` (use the current branch head; check the latest commit and CI result before integration). Before implementing, bring the current data-foundation branch into your working branch through the team's agreed merge/rebase workflow.
+The integration target is the current `feature/data-foundation` branch. Check its latest commit and CI result before integration; do not rely on an older pinned commit. Bring the current branch into your working branch through the team's agreed merge/rebase workflow.
 
 The public API is exported from `src.data`:
 
