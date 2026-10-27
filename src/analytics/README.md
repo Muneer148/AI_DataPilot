@@ -135,14 +135,18 @@ Every analytics function returns an `AnalyticsResult` with these fields:
 
 Use `result.to_dict()` for JSON-friendly Python values or `result.to_json()` for strict JSON text. Missing and non-finite values are represented as JSON `null`; result errors use `AnalyticsError`, whose `code`, message, and JSON-safe details can be returned to an API client. Do not silently discard warnings: they can explain skipped rows or truncated results.
 
+A chart specification returned by `build_chart_spec` contains `type`, `title`, `x` and `y` field/label objects, `data` (a list of `{"x": ..., "y": ...}` points), `source_operation`, `record_count`, and `warnings`. Bar, line, and scatter charts need finite numeric `y` values or nulls for missing points; `x` must be a scalar value. Pie charts require finite, non-negative numeric `y` values and do not accept null pie values. `build_figure` consumes the same bounded chart points to construct the Plotly figure; it does not calculate a new summary.
+
+Column selection and correlation are limited to 100 columns by default (and at most 100). Correlation returns at most 1,000 pairs; chart specifications at most 1,000 points; and public result-limit arguments accept values from 1 to 1,000. The default limits are lower for aggregation (`limit=100`) and outlier candidates (`max_results=100`). Invalid columns, methods, intervals, filters, aggregation operations, and limit values raise `AnalyticsError` with a stable error code. Read the warnings and metrics to distinguish a complete result from a bounded or skipped-data result.
+
 ## Numerical and privacy policies
 
 - Missing ratios use all rows as the denominator. An empty dataset has a zero missing ratio.
 - Numeric calculations exclude positive and negative infinity and report or warn about them. Numeric-looking strings are not coerced.
-- Standard deviation uses ddof=1 and is null when fewer than two usable values are available.
+- Standard deviation uses ddof=1 and is null when fewer than two usable values are available. Integer sums use Python integer accumulation to avoid fixed-width integer overflow; floating-point results still follow floating-point precision limits.
 - Aggregation count counts non-null values; row_count counts all filtered rows in each group. Missing grouping keys are retained. Equality, inequality and negative-membership filters exclude missing values; use is_null/not_null for missingness.
 - Correlation supports Pearson, Spearman and Kendall; it uses pairwise-complete finite observations and reports per-pair sample size. It analyzes at most 100 columns and returns at most 1,000 pairs by default; correlation does not prove causation.
-- Numeric time columns are rejected rather than silently interpreted as nanoseconds. Missing measures and infinite measures are reported separately. Other trend timestamps are parsed with invalid values coerced to missing. Naive timestamps are interpreted as UTC; the requested timezone is applied before hour/day/week/month/quarter/year bucketing.
+- Numeric time columns are rejected rather than silently interpreted as nanoseconds. Missing measures and infinite measures are reported separately. Other trend timestamps are parsed with invalid values coerced to missing. Naive timestamps are interpreted as UTC; the requested timezone is applied before hour/day/week/month/quarter/year bucketing. Week buckets use pandas' weekly frequency and are labeled at the week end.
 - Outlier flags use IQR or population z-score thresholds. They are candidates for investigation, not proof of error or fraud.
 - Result records, returned columns and chart points are bounded. Pie charts require finite, non-negative numeric values. Outlier results omit unrelated row fields.
 - Results are JSON-serializable; non-finite numbers become null. Charts use the same records returned by analytics and do not independently recompute values.
