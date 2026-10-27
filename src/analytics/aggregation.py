@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, json_safe, validate_columns, validate_limit
+from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, json_safe, sum_numeric_values, validate_columns, validate_limit
 
 SUPPORTED_AGGREGATIONS = {"count", "sum", "mean", "median", "min", "max", "std"}
 NUMERIC_AGGREGATIONS = {"sum", "mean", "median", "std"}
@@ -96,7 +96,7 @@ def _aggregate_series(series: pd.Series, operation: str, column: str):
         return None if operation != "count" else 0
     try:
         if operation == "sum":
-            return json_safe(values.sum())
+            return json_safe(sum_numeric_values(values))
         if operation == "mean":
             return json_safe(values.mean())
         if operation == "median":
