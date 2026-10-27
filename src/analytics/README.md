@@ -3,6 +3,8 @@
 > **Owns:** correct, reproducible calculations and charts based on the actual prepared dataset.
 >
 > **Project:** AI_DataPilot · **Target branch:** `feature/analytics`
+>
+> **Project roadmap:** 25 weeks total; see the [root README](../../README.md) for milestones and four-member ownership.
 
 ## 1. Why this feature exists
 
@@ -29,7 +31,7 @@ Member 1 owns data cleaning, quality, schema and provenance. Member 2 owns natur
 
 ## 3. Input contract
 
-The integration target is the data foundation on `feature/data-foundation` (latest documented commit: `43a96ea444abcb9a927e88a7abdad025d70d4480`). Bring that branch into your working branch using the team's agreed workflow before relying on the API.
+The integration target is the data foundation on `feature/data-foundation` (use the current branch head; check the latest commit and CI result before integration). Bring that branch into your working branch using the team's agreed workflow before relying on the API.
 
 `AnalysisReadyDataset` is exported from `src.data` and exposes:
 
