@@ -9,6 +9,14 @@ from src.analytics.contracts import AnalyticsError, json_safe, validate_limit
 SUPPORTED_CHART_TYPES = {"bar", "line", "scatter", "pie"}
 
 
+def _is_finite_number(value: Any) -> bool:
+    """Return whether a numeric value is representable as a finite chart number."""
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
 def _as_result_dict(result: Any) -> dict[str, Any]:
     if callable(getattr(result, "to_dict", None)):
         result = result.to_dict()
@@ -97,7 +105,18 @@ def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, ti
             warnings.append(f"Chart data was limited to {max_points} of {len(records)} result records.")
         bounded_records = records[:max_points]
         for index, row in enumerate(bounded_records):
-            x_value = json_safe(row.get(x))
+            raw_x = row.get(x)
+            if (
+                isinstance(raw_x, numbers.Real)
+                and not isinstance(raw_x, bool)
+                and not _is_finite_number(raw_x)
+            ):
+                raise AnalyticsError(
+                    "Chart x values must be finite numbers or null",
+                    code="INVALID_CHART_VALUES",
+                    details={"field": x, "record_index": index},
+                )
+            x_value = json_safe(raw_x)
             if x_value is not None and not isinstance(
                 x_value, (str, int, float, bool)
             ):
@@ -107,7 +126,20 @@ def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, ti
                     details={"field": x, "record_index": index},
                 )
 
-            y_value = json_safe(row.get(y))
+            raw_y = row.get(y)
+            if (
+                raw_y is not None
+                and isinstance(raw_y, numbers.Real)
+                and not isinstance(raw_y, bool)
+                and not _is_finite_number(raw_y)
+            ):
+                raise AnalyticsError(
+                    "Chart y values must be finite numbers or null",
+                    code="INVALID_CHART_VALUES",
+                    details={"field": y, "record_index": index},
+                )
+
+            y_value = json_safe(raw_y)
             if chart_type != "pie" and y_value is not None:
                 valid_numeric = (
                     isinstance(y_value, numbers.Real)
