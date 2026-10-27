@@ -83,3 +83,25 @@ def test_chart_result_warning_metadata_and_limit_are_validated():
             y="y",
             max_points=0,
         )
+
+
+def test_chart_builder_rejects_malformed_result_metadata_with_clear_errors():
+    with pytest.raises(AnalyticsError, match="result.parameters must be a mapping"):
+        build_chart_spec(
+            {"operation": "aggregate", "records": [], "parameters": ["bad"]},
+            x="x",
+            y="y",
+        )
+    with pytest.raises(AnalyticsError, match="result.operation must be a string"):
+        build_chart_spec(
+            {"operation": ["aggregate"], "records": []},
+            x="x",
+            y="y",
+        )
+    with pytest.raises(AnalyticsError, match="title must be a string"):
+        build_chart_spec(
+            {"operation": "aggregate", "records": [{"x": "A", "y": 1}]},
+            x="x",
+            y="y",
+            title=["bad"],
+        )

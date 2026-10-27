@@ -30,9 +30,28 @@ def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, ti
         )
     if not isinstance(x, str) or not x or not isinstance(y, str) or not y:
         raise AnalyticsError("x and y must be non-empty field names", code="INVALID_CHART_FIELDS")
+    if title is not None and not isinstance(title, str):
+        raise AnalyticsError("title must be a string", code="INVALID_CHART_TITLE")
     max_points = validate_limit(max_points, parameter="max_points")
+    operation = source.get("operation")
+    if operation is not None and not isinstance(operation, str):
+        raise AnalyticsError(
+            "result.operation must be a string",
+            code="INVALID_CHART_RESULT",
+        )
+
+    raw_parameters = source.get("parameters")
+    if raw_parameters is None:
+        parameters = {}
+    elif not isinstance(raw_parameters, Mapping):
+        raise AnalyticsError(
+            "result.parameters must be a mapping",
+            code="INVALID_CHART_RESULT",
+        )
+    else:
+        parameters = raw_parameters
+
     records = source.get("records", [])
-    parameters = source.get("parameters") or {}
     known_fields = set()
     returned_columns = parameters.get("returned_columns") if isinstance(parameters, Mapping) else None
     if isinstance(returned_columns, list) and all(isinstance(field, str) for field in returned_columns):
@@ -49,7 +68,7 @@ def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, ti
             "row_position", "value", "outlier_score", "side", "lower_fence", "upper_fence",
         },
     }
-    known_fields.update(operation_fields.get(source.get("operation"), set()))
+    known_fields.update(operation_fields.get(operation, set()))
     missing = sorted({
         field for field in (x, y)
         if (
@@ -64,7 +83,9 @@ def build_chart_spec(result: Any, *, chart_type: str = "bar", x: str, y: str, ti
             code="UNKNOWN_CHART_FIELD",
             details={"fields": missing},
         )
-    raw_warnings = source.get("warnings") or []
+    raw_warnings = source.get("warnings", [])
+    if raw_warnings is None:
+        raw_warnings = []
     if not isinstance(raw_warnings, list) or any(not isinstance(warning, str) for warning in raw_warnings):
         raise AnalyticsError("result.warnings must be a list of strings", code="INVALID_CHART_RESULT")
     warnings = list(raw_warnings)
