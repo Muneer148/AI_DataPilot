@@ -7,6 +7,7 @@ CSV text is parsed in memory; this demo does not persist uploaded data.
 """
 from __future__ import annotations
 
+import csv
 from io import StringIO
 from typing import Any
 
@@ -38,6 +39,15 @@ def parse_csv_text(csv_text: str) -> pd.DataFrame:
         raise AppInputError("Paste a non-empty CSV dataset first.")
     if len(csv_text) > MAX_CSV_CHARS:
         raise AppInputError(f"CSV input exceeds the {MAX_CSV_CHARS:,}-character demo limit.")
+    try:
+        header = next(csv.reader(StringIO(csv_text)))
+    except (csv.Error, StopIteration) as exc:
+        raise AppInputError("The CSV must start with a valid header row.") from exc
+    normalized_header = [name.strip() for name in header]
+    if any(not name for name in normalized_header):
+        raise AppInputError("Every column must have a non-empty header.")
+    if len(set(normalized_header)) != len(normalized_header):
+        raise AppInputError("Column names must be unique. Rename duplicate headers before analysis.")
     try:
         frame = pd.read_csv(StringIO(csv_text))
     except Exception as exc:
