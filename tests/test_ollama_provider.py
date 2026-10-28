@@ -84,3 +84,45 @@ def test_request_contains_schema_but_no_raw_rows():
         result = plan_question_with_ollama("What is the total sales?", frame())
     assert result.metric_column == "sales"
     assert result.aggregation == "sum"
+
+
+def test_connection_failure_raises_safe_provider_error():
+    with patch(
+        "src.agent.ollama_provider.urlopen",
+        side_effect=OSError("simulated connection failure"),
+    ):
+        with pytest.raises(OllamaProviderError, match="Could not reach Ollama"):
+            plan_question_with_ollama("What is the total sales?", frame())
+
+
+def test_invalid_api_json_raises_provider_error():
+    with patch(
+        "src.agent.ollama_provider.urlopen",
+        return_value=BytesIO(b"{not valid json"),
+    ):
+        with pytest.raises(OllamaProviderError, match="invalid API response"):
+            plan_question_with_ollama("What is the total sales?", frame())
+
+
+def test_malformed_structured_plan_raises_provider_error():
+    response = {"message": {"content": "{not valid plan json"}}
+    with patch(
+        "src.agent.ollama_provider.urlopen",
+        return_value=BytesIO(json.dumps(response).encode("utf-8")),
+    ):
+        with pytest.raises(OllamaProviderError, match="valid structured plan"):
+            plan_question_with_ollama("What is the total sales?", frame())
+
+
+def test_invalid_result_limit_is_rejected():
+    with pytest.raises(OllamaProviderError, match="invalid result limit"):
+        _validate_plan(plan(limit=True), frame())
+
+
+def test_invalid_endpoint_is_rejected_before_network_request():
+    with patch("src.agent.ollama_provider.urlopen") as mocked_urlopen:
+        with pytest.raises(ValueError, match="valid HTTP"):
+            plan_question_with_ollama(
+                "What is the total sales?", frame(), base_url="file:///tmp/ollama"
+            )
+        mocked_urlopen.assert_not_called()
