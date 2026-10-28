@@ -126,3 +126,12 @@ def test_invalid_endpoint_is_rejected_before_network_request():
                 "What is the total sales?", frame(), base_url="file:///tmp/ollama"
             )
         mocked_urlopen.assert_not_called()
+
+@pytest.mark.parametrize("field,value,message", [
+    ("operation", [], "invalid operation"),
+    ("aggregation", [], "invalid aggregation"),
+])
+def test_non_string_plan_fields_are_rejected_cleanly(field, value, message):
+    malformed = plan(**{field: value})
+    with pytest.raises(OllamaProviderError, match=message):
+        _validate_plan(malformed, frame())
