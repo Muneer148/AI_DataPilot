@@ -61,6 +61,13 @@ def _validate_plan(raw: Any, frame: pd.DataFrame) -> AnalysisPlan:
     limit = raw["limit"]
     clarification = raw["clarification"]
 
+    # Validate types before set membership or string operations so malformed
+    # model output fails closed with a controlled provider error.
+    if not isinstance(operation, str):
+        raise OllamaProviderError("Ollama returned an invalid operation.")
+    if aggregation is not None and not isinstance(aggregation, str):
+        raise OllamaProviderError("Ollama returned an invalid aggregation.")
+
     if operation == "clarify":
         message = clarification.strip() if isinstance(clarification, str) else ""
         raise ValueError(message or "Please clarify which metric, dimension or period you want to analyze.")
