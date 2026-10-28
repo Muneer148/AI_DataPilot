@@ -1,61 +1,74 @@
-# AI_DataPilot Agent MVP — review build
+# AI_DataPilot Agent MVP
 
-## Current scope
-This branch contains two planning paths:
-- **Rules baseline**: deterministic phrase matching, available without a model.
-- **Local Ollama planning adapter**: asks a local Qwen/Ollama model to produce a structured analysis plan, then validates the plan before any analytics tool runs.
+## What works today
 
-Neither path is a production-ready autonomous agent. The Ollama adapter is a planner only; it does not yet generate the final explanatory narrative, infer root causes, manage multi-step diagnostic investigations, or connect to the application UI/API.
+The agent is integrated with the local FastAPI demo (app/main.py) and exposes the question-driven flow through POST /api/analyze. The UI can select one of two planning modes:
+
+- **Rules baseline**: deterministic phrase matching; no model required.
+- **Local Ollama planner**: an installed local model proposes a structured plan. The plan is type-checked, checked against the dataset schema, and restricted to supported operations before deterministic analytics execute.
+
+The agent returns a status, answer, plan, calculation evidence, clarification (when needed), and warnings. The UI displays the evidence separately from the answer.
+
+This is a bounded, single-step analyst copilot—not a production-ready autonomous agent, SOC agent, or general-purpose assistant. It does not execute model-generated code or unrestricted SQL, and it does not claim to infer root causes from correlation.
 
 ## Local setup
-Install Ollama and download a compatible local model. The suggested starting point is Qwen3.5 4B:
+
+From the repository root, install dependencies and start the API:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+Open http://127.0.0.1:8000. The rules baseline works without Ollama.
+
+For local model planning, install Ollama and pull a compatible local model:
 
 ```powershell
 ollama pull qwen3.5:4b
 ollama run qwen3.5:4b
 ```
 
-The Ollama service normally listens at `http://127.0.0.1:11434`. Configure the model if needed:
+Configuration:
 
-- `AI_DATAPILOT_OLLAMA_MODEL`: defaults to `qwen3.5:4b`
-- `OLLAMA_BASE_URL`: defaults to `http://127.0.0.1:11434`
+- AI_DATAPILOT_OLLAMA_MODEL: model name; defaults to qwen3.5:4b
+- OLLAMA_BASE_URL: endpoint; defaults to http://127.0.0.1:11434
 
-Do not expose Ollama's unauthenticated API directly to the public internet. For another trusted laptop on your private LAN, configure the service deliberately, restrict access with firewall rules, and do not send private row data to it.
+Keep Ollama bound to loopback for local use. Do not expose its unauthenticated API to the public internet. A remote endpoint must be deliberately trusted and protected.
 
-Example integration:
+## Supported operations
 
-```python
-from src.agent import ask
-from src.data import prepare_file
+- Dataset summary / description
+- One metric aggregation: sum, mean, median, min, max, or count; optionally grouped by one column
+- Correlation between two explicitly named columns
+- Row count, optionally grouped by one column
+- Clarification when intent or column selection is ambiguous or unsupported
 
-dataset = prepare_file("data/raw/sales.csv")
-response = ask(dataset, "What is the total sales?", planner="ollama")
-print(response.to_dict())
+The planner proposes intent; deterministic analytics calculate the result. The returned records are the source of truth. Correlation does not establish causation.
+
+## Safety and privacy boundaries
+
+- CSV text is bounded by the demo's input, row, and column limits and is processed in memory; this demo does not persist uploaded datasets.
+- Rules mode does not call Ollama.
+- Ollama mode sends the question and column names/types, not raw dataset rows or example records.
+- Model output is validated against required fields, supported operations, column names, and argument constraints before execution.
+- Only explicitly allow-listed analytics operations execute. Model-produced Python, shell commands, and unrestricted SQL are not executed.
+- Provider failures and invalid plans fail closed; there is no automatic fallback that could silently change the intended analysis.
+- Answers, plans, and evidence are separate objects. The app does not use the LLM to invent calculation results.
+
+## Verification
+
+Run the full test suite:
+
+```powershell
+python -m pytest -q
 ```
 
-For an offline deterministic baseline, omit `planner="ollama"` or use `planner="rules"`.
+The Ollama provider tests mock HTTP responses, so CI does not require a running model or API key. Test coverage is a signal about exercised lines, not proof of security or correctness.
 
-The adapter sends only the user's question and column names/dtypes to Ollama. It does not send raw rows, profile examples, or the full DataFrame. Every returned plan is validated against the actual column list and an allow-list of operations before execution.
+## Deliberate limitations / next milestones
 
-## Current supported plan types
-- Dataset summary / description
-- One metric aggregation (sum, mean, median, min, max, count), optionally grouped by one column
-- Correlation between two explicitly named columns
-- Row count
-- Clarification when required details are missing or unsupported
-
-Correlation is not causation. A sales table alone does not establish that inflation, supplier behavior, or another external factor caused a price change.
-
-## Safety boundary
-- The model plans; deterministic analytics calculate.
-- Never execute model-produced Python or unrestricted SQL.
-- Unknown/ambiguous columns do not reach tools.
-- Invalid model output, provider failure, or unsupported operations must fail closed; no made-up fallback number.
-- Keep model output, execution results and final explanation as separate objects.
-- Tests mock the Ollama API; no live model/API key is needed in CI.
-
-## Next development milestones
-1. Build price/cost/margin diagnostic tools using matched SKU/lot/time data.
-2. Add evidence-grounded explanation that separates facts from hypotheses and cites evidence IDs.
-3. Add evaluation fixtures for intent accuracy, abstention and factual-grounding failure cases.
-4. Integrate with Member 4's UI/API, upload lifecycle, request timeouts and audit trail.
+1. Expand intent and abstention evaluation with representative business questions and adversarial malformed model responses.
+2. Add multi-step diagnostic workflows only after each tool has an explicit input/output contract and bounded execution.
+3. Add evidence IDs and an explanation format that separates observed facts, hypotheses, and missing data.
+4. Add deployment-level controls (authentication, request rate limits, audit policy, and protected hosting) before exposing the API beyond a trusted local environment.
