@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from src.agent import ask
+from app.diagnostics import diagnose_price_cost
 
 MAX_CSV_CHARS = 1_000_000
 MAX_ROWS = 5_000
@@ -27,6 +28,10 @@ class AnalyzeRequest(BaseModel):
     csv_text: str = Field(min_length=1, max_length=MAX_CSV_CHARS)
     question: str = Field(min_length=1, max_length=1000)
     planner: str = Field(default="rules", pattern="^(rules|ollama)$")
+
+
+class PriceDiagnosticRequest(BaseModel):
+    csv_text: str = Field(min_length=1, max_length=MAX_CSV_CHARS)
 
 
 class AppInputError(ValueError):
@@ -104,6 +109,22 @@ def analyze(payload: AnalyzeRequest) -> dict[str, Any]:
         return {"status": "invalid_dataset", "answer": "The dataset was not analyzed.", "clarification": str(exc)}
 
 
+@app.post("/api/diagnose-pricing")
+def diagnose_pricing(payload: PriceDiagnosticRequest) -> dict[str, Any]:
+    try:
+        frame = parse_csv_text(payload.csv_text)
+        return diagnose_price_cost(frame)
+    except AppInputError as exc:
+        return {
+            "status": "needs_data",
+            "summary": "The CSV dataset could not be analyzed.",
+            "missing_columns": [],
+            "records": [],
+            "product_findings": [],
+            "limitations": [str(exc)],
+        }
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return r"""
@@ -121,6 +142,7 @@ textarea,input,select{width:100%;background:#0b1423;border:1px solid #34465f;bor
 textarea{min-height:300px;resize:vertical}input{font:15px system-ui;margin:6px 0 10px}select{font:14px system-ui;margin:6px 0 10px}
 label{display:block;font-weight:650;font-size:13px;margin:13px 0 4px}.muted{color:var(--muted);font-size:13px}
 button{border:0;border-radius:9px;background:var(--accent);color:#07231f;font-weight:800;padding:12px 16px;cursor:pointer}button.secondary{background:#23364e;color:var(--text);border:1px solid #3b506b}.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}.chips{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.chips button{font-size:12px;padding:7px 10px}.result{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1423;border:1px solid var(--border);border-radius:10px;padding:13px;max-height:440px;overflow:auto;font:12px/1.6 ui-monospace,monospace}
+.diagnostic{margin:10px 0 14px;border:1px solid var(--border);border-radius:10px;padding:14px;background:#0b1423}.diagnostic strong{color:var(--accent)}
 .table-wrap{overflow:auto;max-width:100%;margin:8px 0 14px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--border);white-space:nowrap}th{color:var(--accent);font-weight:750;background:#0b1423;position:sticky;top:0}.bars{display:grid;gap:9px;margin:10px 0 16px}.bar-row{display:grid;grid-template-columns:minmax(70px,120px) 1fr minmax(44px,70px);gap:8px;align-items:center;font-size:12px}.bar-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.bar-track{background:#203048;height:13px;border-radius:5px;overflow:hidden}.bar-fill{height:100%;background:linear-gradient(90deg,#36a89d,#68e0c3);border-radius:5px}.bar-value{text-align:right;font-variant-numeric:tabular-nums}
 .status{font-weight:800;color:var(--accent)}.status.warn{color:#ffc979}.foot{margin-top:18px;color:var(--muted);font-size:12px}.full{grid-column:1/-1}
 @media(max-width:820px){.layout{grid-template-columns:1fr}.full{grid-column:auto}textarea{min-height:230px}}
@@ -150,8 +172,11 @@ button{border:0;border-radius:9px;background:var(--accent);color:#07231f;font-we
 <label>Calculated records</label><div id="result-table" class="muted">No result table yet.</div>
 <label>Grouped comparison</label><div id="bars" class="muted">A visual comparison appears for supported grouped numeric results.</div>
 </section>
-<section class="panel full"><h2>3 · Inspect evidence and limitations</h2>
-<p class="muted">The result includes operation parameters, records, assumptions and warnings. A correlation does not prove causation.</p>
+<section class="panel full"><h2>3 · Price/cost investigation and evidence</h2>
+<p class="muted">Run a deterministic, per-product comparison of quantity-weighted purchase-cost and selling-price rates. It reports observations, not a proven root cause.</p>
+<div class="actions"><button id="diagnose-pricing">Run price/cost diagnostic</button><span id="diagnostic-status" class="muted" aria-live="polite"></span></div>
+<div id="diagnostic" class="diagnostic">The diagnostic checks for rising selling-price rates alongside flat/falling purchase-cost proxies, then states its limitations.</div>
+<p class="muted">For question-driven analysis, the result below includes operation parameters, records, assumptions and warnings. Correlation does not prove causation.</p>
 <div id="evidence" class="result">No evidence yet.</div>
 <div class="foot">For this review build, Ollama proposes a structured plan and deterministic analytics perform calculations. It cannot prove external causes such as inflation from internal sales data alone.</div>
 </section></div></main>
@@ -206,6 +231,22 @@ function renderBars(payload){
 }
 document.getElementById('reset').addEventListener('click',()=>{csv.value=sample;});
 document.querySelectorAll('[data-q]').forEach(btn=>btn.addEventListener('click',()=>{question.value=btn.dataset.q;}));
+document.getElementById('diagnose-pricing').addEventListener('click',async()=>{
+ const label=document.getElementById('diagnostic-status'), target=document.getElementById('diagnostic');
+ label.textContent='Comparing prices and costs…';target.textContent='Calculating weighted rates from the supplied rows…';
+ try{
+  const response=await fetch('/api/diagnose-pricing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csv_text:csv.value})});
+  const result=await response.json();label.textContent=result.status;
+  target.replaceChildren();
+  const summary=document.createElement('p');summary.textContent=result.summary||'No summary was produced.';target.appendChild(summary);
+  if(Array.isArray(result.product_findings))result.product_findings.forEach(item=>{
+   const p=document.createElement('p');const strong=document.createElement('strong');strong.textContent=String(item.product||item.status||'Finding')+': ';
+   p.append(strong,document.createTextNode(String(item.finding||item.status||'')));target.appendChild(p);
+  });
+  const detail=document.createElement('details');const caption=document.createElement('summary');caption.textContent='Show period records and calculation limitations';detail.appendChild(caption);
+  const pre=document.createElement('pre');pre.className='result';pre.textContent=JSON.stringify({records:result.records,weighting:result.weighting,excluded_rows:result.excluded_rows,limitations:result.limitations},null,2);detail.appendChild(pre);target.appendChild(detail);
+ }catch(err){label.textContent='diagnostic failed';target.textContent='Could not complete the diagnostic. Inspect the local app terminal and verify the CSV columns.';}
+});
 document.getElementById('run').addEventListener('click',async()=>{
  statusBox.textContent='Analyzing…';answerBox.textContent='Waiting for validated analytics results…';evidenceBox.textContent='Waiting for evidence…';
  try{
