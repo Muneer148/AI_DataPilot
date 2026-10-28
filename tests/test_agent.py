@@ -54,3 +54,24 @@ def test_correlation_requires_two_named_columns():
     response = ask(sample(), "What is the correlation between sales and units?")
     assert response.status == "ok"
     assert response.evidence["operation"] == "correlation"
+
+
+def test_ollama_planner_is_an_explicit_opt_in(monkeypatch):
+    from src.agent import AnalysisPlan
+    import src.agent.orchestrator as orchestrator
+
+    def fake_plan(question, dataset, *, model=None, base_url=None):
+        assert question == "total sales"
+        assert model == "qwen3.5:4b"
+        return AnalysisPlan(operation="aggregate", metric_column="sales", aggregation="sum")
+
+    monkeypatch.setattr(orchestrator, "plan_question_with_ollama", fake_plan)
+    response = orchestrator.ask(sample(), "total sales", planner="ollama", ollama_model="qwen3.5:4b")
+    assert response.status == "ok"
+    assert response.evidence["records"][0]["sales__sum"] == 500
+
+
+def test_unknown_planner_mode_returns_controlled_error():
+    response = ask(sample(), "total sales", planner="other")
+    assert response.status == "error"
+    assert response.evidence is None
