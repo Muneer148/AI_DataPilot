@@ -121,6 +121,7 @@ textarea,input,select{width:100%;background:#0b1423;border:1px solid #34465f;bor
 textarea{min-height:300px;resize:vertical}input{font:15px system-ui;margin:6px 0 10px}select{font:14px system-ui;margin:6px 0 10px}
 label{display:block;font-weight:650;font-size:13px;margin:13px 0 4px}.muted{color:var(--muted);font-size:13px}
 button{border:0;border-radius:9px;background:var(--accent);color:#07231f;font-weight:800;padding:12px 16px;cursor:pointer}button.secondary{background:#23364e;color:var(--text);border:1px solid #3b506b}.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}.chips{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.chips button{font-size:12px;padding:7px 10px}.result{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1423;border:1px solid var(--border);border-radius:10px;padding:13px;max-height:440px;overflow:auto;font:12px/1.6 ui-monospace,monospace}
+.table-wrap{overflow:auto;max-width:100%;margin:8px 0 14px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--border);white-space:nowrap}th{color:var(--accent);font-weight:750;background:#0b1423;position:sticky;top:0}.bars{display:grid;gap:9px;margin:10px 0 16px}.bar-row{display:grid;grid-template-columns:minmax(70px,120px) 1fr minmax(44px,70px);gap:8px;align-items:center;font-size:12px}.bar-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.bar-track{background:#203048;height:13px;border-radius:5px;overflow:hidden}.bar-fill{height:100%;background:linear-gradient(90deg,#36a89d,#68e0c3);border-radius:5px}.bar-value{text-align:right;font-variant-numeric:tabular-nums}
 .status{font-weight:800;color:var(--accent)}.status.warn{color:#ffc979}.foot{margin-top:18px;color:var(--muted);font-size:12px}.full{grid-column:1/-1}
 @media(max-width:820px){.layout{grid-template-columns:1fr}.full{grid-column:auto}textarea{min-height:230px}}
 </style></head><body><main>
@@ -146,6 +147,8 @@ button{border:0;border-radius:9px;background:var(--accent);color:#07231f;font-we
 </div>
 <div class="actions"><button id="run">Analyze question</button><span id="status" class="muted" aria-live="polite"></span></div>
 <label>Answer</label><div id="answer" class="result">Run an analysis to see the answer and its evidence.</div>
+<label>Calculated records</label><div id="result-table" class="muted">No result table yet.</div>
+<label>Grouped comparison</label><div id="bars" class="muted">A visual comparison appears for supported grouped numeric results.</div>
 </section>
 <section class="panel full"><h2>3 · Inspect evidence and limitations</h2>
 <p class="muted">The result includes operation parameters, records, assumptions and warnings. A correlation does not prove causation.</p>
@@ -170,6 +173,37 @@ const sample = `month,product,supplier,purchase_cost_per_kg,selling_price_per_kg
 const csv=document.getElementById('csv'), question=document.getElementById('question'), planner=document.getElementById('planner');
 const statusBox=document.getElementById('status'), answerBox=document.getElementById('answer'), evidenceBox=document.getElementById('evidence');
 csv.value=sample;
+function renderRecords(payload){
+ const host=document.getElementById('result-table');host.replaceChildren();
+ const records=payload.evidence&&payload.evidence.records;
+ if(!Array.isArray(records)||records.length===0){host.textContent='No result records returned.';return;}
+ const headers=(payload.evidence.parameters&&payload.evidence.parameters.returned_columns)||Object.keys(records[0]);
+ const wrap=document.createElement('div');wrap.className='table-wrap';
+ const table=document.createElement('table');const thead=document.createElement('thead');const hr=document.createElement('tr');
+ headers.forEach(name=>{const th=document.createElement('th');th.textContent=String(name);hr.appendChild(th);});
+ thead.appendChild(hr);table.appendChild(thead);
+ const tbody=document.createElement('tbody');
+ records.slice(0,100).forEach(record=>{const tr=document.createElement('tr');headers.forEach(name=>{const td=document.createElement('td');const value=record[name];td.textContent=value===null||value===undefined?'—':(typeof value==='object'?JSON.stringify(value):String(value));tr.appendChild(td);});tbody.appendChild(tr);});
+ table.appendChild(tbody);wrap.appendChild(table);host.appendChild(wrap);
+}
+function renderBars(payload){
+ const host=document.getElementById('bars');host.replaceChildren();
+ const plan=payload.plan, records=payload.evidence&&payload.evidence.records;
+ if(!plan||plan.operation!=='aggregate'||!Array.isArray(plan.group_by)||plan.group_by.length!==1||!Array.isArray(records)||records.length===0){host.textContent='This query did not return a grouped numeric result.';return;}
+ const group=plan.group_by[0], metric=plan.aggregation==='count_rows'?'row_count':String(plan.metric_column)+'__'+String(plan.aggregation);
+ const values=records.map(r=>({label:String(r[group]??'(missing)'),value:Number(r[metric])})).filter(r=>Number.isFinite(r.value));
+ if(values.length===0){host.textContent='No finite numeric values are available to chart.';return;}
+ const max=Math.max(...values.map(r=>Math.abs(r.value)),1);const bars=document.createElement('div');bars.className='bars';
+ values.slice(0,30).forEach(item=>{
+  const row=document.createElement('div');row.className='bar-row';
+  const label=document.createElement('span');label.className='bar-label';label.textContent=item.label;label.title=item.label;
+  const track=document.createElement('div');track.className='bar-track';
+  const fill=document.createElement('div');fill.className='bar-fill';fill.style.width=(Math.abs(item.value)/max*100)+'%';track.appendChild(fill);
+  const value=document.createElement('span');value.className='bar-value';value.textContent=Number(item.value.toPrecision(6)).toLocaleString();
+  row.append(label,track,value);bars.appendChild(row);
+ });
+ host.appendChild(bars);
+}
 document.getElementById('reset').addEventListener('click',()=>{csv.value=sample;});
 document.querySelectorAll('[data-q]').forEach(btn=>btn.addEventListener('click',()=>{question.value=btn.dataset.q;}));
 document.getElementById('run').addEventListener('click',async()=>{
@@ -180,6 +214,7 @@ document.getElementById('run').addEventListener('click',async()=>{
   statusBox.textContent=payload.status||(response.ok?'completed':'error');statusBox.className='status'+(payload.status==='ok'?'':' warn');
   answerBox.textContent=[payload.answer||'',payload.clarification?'\n\nClarification: '+payload.clarification:'',payload.privacy_note?'\n\n'+payload.privacy_note:''].join('');
   evidenceBox.textContent=JSON.stringify({dataset:payload.dataset,plan:payload.plan,evidence:payload.evidence,warnings:payload.warnings},null,2);
+  renderRecords(payload);renderBars(payload);
  }catch(err){statusBox.textContent='request failed';statusBox.className='status warn';answerBox.textContent='The request failed. Verify the app is running and inspect the terminal.';evidenceBox.textContent=String(err);}
 });
 </script></body></html>
