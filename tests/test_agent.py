@@ -75,3 +75,38 @@ def test_unknown_planner_mode_returns_controlled_error():
     response = ask(sample(), "total sales", planner="other")
     assert response.status == "error"
     assert response.evidence is None
+
+def test_ollama_failure_fails_closed_without_rules_fallback(monkeypatch):
+    import src.agent.orchestrator as orchestrator
+    from src.agent.ollama_provider import OllamaProviderError
+
+    def fail_ollama(*args, **kwargs):
+        raise OllamaProviderError("simulated model unavailable")
+
+    def unexpected_rules_fallback(*args, **kwargs):
+        raise AssertionError("rules fallback must not run silently")
+
+    monkeypatch.setattr(orchestrator, "plan_question_with_ollama", fail_ollama)
+    monkeypatch.setattr(orchestrator, "plan_question", unexpected_rules_fallback)
+
+    response = ask(sample(), "What is the total sales?", planner="ollama")
+
+    assert response.status == "error"
+    assert response.evidence is None
+    assert "could not be used" in response.answer
+    assert "500" not in response.answer
+
+
+def test_unexpected_execution_error_does_not_leak_internals(monkeypatch):
+    import src.agent.orchestrator as orchestrator
+
+    def fail_execution(*args, **kwargs):
+        raise RuntimeError("sensitive internal detail")
+
+    monkeypatch.setattr(orchestrator, "_execute", fail_execution)
+    response = ask(sample(), "What is the total sales?")
+
+    assert response.status == "error"
+    assert "sensitive internal detail" not in response.answer
+    assert "sensitive internal detail" not in (response.clarification or "")
+    assert response.evidence is None
