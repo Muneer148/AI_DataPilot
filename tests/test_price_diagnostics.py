@@ -35,6 +35,9 @@ def test_missing_columns_are_reported_without_guessing():
 
 def test_invalid_prices_and_quantities_are_excluded():
     frame = sample()
+    # Pandas 3 enforces integer dtypes on assignment; cast to object first
+    # so the fixture can represent a malformed CSV value.
+    frame["selling_price_per_kg"] = frame["selling_price_per_kg"].astype(object)
     frame.loc[0, "selling_price_per_kg"] = "invalid"
     frame.loc[1, "quantity_sold_kg"] = 0
     result = diagnose_price_cost(frame)
