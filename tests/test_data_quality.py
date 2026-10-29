@@ -343,3 +343,20 @@ def test_loader_bytes_sanitizes_filename_in_parse_errors():
     loader = DataLoader()
     with pytest.raises(ValueError, match="Could not parse dataset 'bad.csv'"):
         loader.load_bytes("../../bad.csv", b"\xff,\xfe")
+
+
+
+def test_loader_parses_xlsx_bytes_with_declared_engine():
+    from io import BytesIO
+
+    buffer = BytesIO()
+    pd.DataFrame({"sales": [100, 200], "region": ["East", "West"]}).to_excel(
+        buffer, index=False, engine="openpyxl"
+    )
+
+    loaded = DataLoader().load_bytes("sales.xlsx", buffer.getvalue())
+
+    assert loaded.to_dict(orient="records") == [
+        {"sales": 100, "region": "East"},
+        {"sales": 200, "region": "West"},
+    ]
