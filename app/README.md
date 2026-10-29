@@ -39,3 +39,11 @@ To use your own data, paste a small CSV with a header row. The demo accepts at m
 - The price/cost diagnostic treats quantity-weighted purchase cost as a proxy; it is not accounting-grade cost of goods sold unless source rows correctly link costs to items actually sold.
 - Internal business data alone cannot establish macroeconomic causes such as inflation. The agent must identify missing evidence and distinguish observed facts from hypotheses.
 - Do not expose an unauthenticated Ollama endpoint to the public internet. Do not use this demo as a multi-user service without authentication, dataset/session isolation, safer operational logging, and deployment hardening.
+
+## Responsive workspace UI
+
+The FastAPI home route serves the interface from `app/ui.html`; backend endpoints remain in `app/main.py`. The UI includes CSV file selection/drag-and-drop, a pasteable CSV field, a local preview, rules/Ollama planner selection, result/evidence inspection, grouped comparison bars, and the existing price/cost diagnostic.
+
+The browser preview handles quoted commas, escaped quotes, and line breaks inside quoted CSV fields for orientation only. It is not authoritative validation: the server-side parser and configured limits remain authoritative. Validation errors returned by FastAPI are converted to readable messages in the UI. Dataset values are rendered with DOM text APIs rather than inserted as HTML.
+
+The UI smoke tests check that the main workspace and the real API calls remain present. These static tests do not replace browser testing, manual visual inspection, or a live Ollama inference check.
