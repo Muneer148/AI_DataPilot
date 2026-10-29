@@ -135,3 +135,12 @@ def test_non_string_plan_fields_are_rejected_cleanly(field, value, message):
     malformed = plan(**{field: value})
     with pytest.raises(OllamaProviderError, match=message):
         _validate_plan(malformed, frame())
+
+
+def test_provider_timeout_fails_closed():
+    with patch(
+        "src.agent.ollama_provider.urlopen",
+        side_effect=TimeoutError("simulated timeout"),
+    ):
+        with pytest.raises(OllamaProviderError, match="Could not reach Ollama"):
+            plan_question_with_ollama("What is the total sales?", frame())
