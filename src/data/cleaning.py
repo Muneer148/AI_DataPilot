@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+import pandas as pd
+
+
+@dataclass(frozen=True)
+class CleaningConfig:
+    """Explicit, conservative cleaning options.
+
+    Duplicate records are retained by default: repeated rows can be legitimate
+    events (for example, two identical purchases). Drop them only when the
+    dataset's semantics make that operation safe.
+    """
+
+    strip_column_names: bool = True
+    make_column_names_unique: bool = True
+    strip_string_values: bool = True
+    blank_strings_to_missing: bool = True
+    drop_empty_rows: bool = True
+    drop_empty_columns: bool = True
+    drop_duplicate_rows: bool = False
+
+
+@dataclass(frozen=True)
+class CleaningReport:
+    """Audit information describing deterministic cleaning changes."""
+
+    input_rows: int
+    output_rows: int
+    input_columns: int
+    output_columns: int
+    rows_removed: int
+    columns_removed: int
+    duplicate_rows_removed: int
+    empty_rows_removed: int
+    empty_columns_removed: int
+    blank_strings_replaced: int
+    renamed_columns: dict[str, str]
+    # Lossless per-column rename history. The legacy dictionary is retained for
+    # compatibility but cannot represent repeated original labels uniquely.
+    renamed_column_details: tuple[dict[str, Any], ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _unique_names(names: list[str]) -> list[str]:
+    """Make names unique even when generated suffixes already exist."""
+    used: set[str] = set()
+    result: list[str] = []
+    for name in names:
+        candidate = name
+        suffix = 2
+        while candidate in used:
+            candidate = f"{name}_{suffix}"
+            suffix += 1
+        used.add(candidate)
+        result.append(candidate)
+    return result
+
+
+def clean_dataframe(
+    df: pd.DataFrame,
+    config: CleaningConfig | None = None,
+) -> tuple[pd.DataFrame, CleaningReport]:
+    """Return a cleaned copy and an auditable report; the input is never mutated."""
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame.")
+
+    config = config or CleaningConfig()
+    cleaned = df.copy(deep=True)
+    input_rows, input_columns = cleaned.shape
+
+    original_names = [str(column) for column in cleaned.columns]
+    new_names = original_names.copy()
+    if config.strip_column_names:
+        new_names = [name.strip() for name in new_names]
+    if config.make_column_names_unique:
+        new_names = _unique_names(new_names)
+
+    renamed_columns = {
+        old: new
+        for old, new in zip(original_names, new_names)
+        if old != new
+    }
+    renamed_column_details = tuple(
+        {
+            "position": position,
+            "original_name": old,
+            "cleaned_name": new,
+        }
+        for position, (old, new) in enumerate(zip(original_names, new_names))
+        if old != new
+    )
+    cleaned.columns = new_names
+
+    blank_strings_replaced = 0
+    if config.strip_string_values or config.blank_strings_to_missing:
+        # Work by column position: when callers deliberately disable unique
+        # names, selecting by label can return multiple columns as a DataFrame.
+        string_positions = [
+            position
+            for position, dtype in enumerate(cleaned.dtypes)
+            if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype)
+        ]
+        for position in string_positions:
+            series = cleaned.iloc[:, position]
+            if config.strip_string_values:
+                series = series.map(
+                    lambda value: value.strip() if isinstance(value, str) else value
+                )
+            if config.blank_strings_to_missing:
+                blank_mask = series.map(
+                    lambda value: isinstance(value, str) and value == ""
+                )
+                blank_strings_replaced += int(blank_mask.sum())
+                series = series.mask(blank_mask, pd.NA)
+            cleaned.isetitem(position, series)
+
+    empty_rows_removed = 0
+    if config.drop_empty_rows:
+        before = len(cleaned)
+        cleaned = cleaned.dropna(how="all")
+        empty_rows_removed = before - len(cleaned)
+
+    empty_columns_removed = 0
+    if config.drop_empty_columns:
+        before = len(cleaned.columns)
+        cleaned = cleaned.dropna(axis=1, how="all")
+        empty_columns_removed = before - len(cleaned.columns)
+
+    duplicate_rows_removed = 0
+    if config.drop_duplicate_rows:
+        before = len(cleaned)
+        cleaned = cleaned.drop_duplicates(ignore_index=True)
+        duplicate_rows_removed = before - len(cleaned)
+
+    cleaned = cleaned.reset_index(drop=True)
+
+    report = CleaningReport(
+        input_rows=input_rows,
+        output_rows=len(cleaned),
+        input_columns=input_columns,
+        output_columns=len(cleaned.columns),
+        rows_removed=input_rows - len(cleaned),
+        columns_removed=input_columns - len(cleaned.columns),
+        duplicate_rows_removed=duplicate_rows_removed,
+        empty_rows_removed=empty_rows_removed,
+        empty_columns_removed=empty_columns_removed,
+        blank_strings_replaced=blank_strings_replaced,
+        renamed_columns=renamed_columns,
+        renamed_column_details=renamed_column_details,
+    )
+    return cleaned, report
