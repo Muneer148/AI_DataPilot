@@ -39,6 +39,9 @@ class CleaningReport:
     empty_columns_removed: int
     blank_strings_replaced: int
     renamed_columns: dict[str, str]
+    # Lossless per-column rename history. The legacy dictionary is retained for
+    # compatibility but cannot represent repeated original labels uniquely.
+    renamed_column_details: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -83,6 +86,15 @@ def clean_dataframe(
         for old, new in zip(original_names, new_names)
         if old != new
     }
+    renamed_column_details = tuple(
+        {
+            "position": position,
+            "original_name": old,
+            "cleaned_name": new,
+        }
+        for position, (old, new) in enumerate(zip(original_names, new_names))
+        if old != new
+    )
     cleaned.columns = new_names
 
     blank_strings_replaced = 0
@@ -140,5 +152,6 @@ def clean_dataframe(
         empty_columns_removed=empty_columns_removed,
         blank_strings_replaced=blank_strings_replaced,
         renamed_columns=renamed_columns,
+        renamed_column_details=renamed_column_details,
     )
     return cleaned, report
