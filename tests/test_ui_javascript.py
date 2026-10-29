@@ -15,7 +15,7 @@ def test_inline_ui_javascript_passes_node_syntax_check(tmp_path):
 
     repository_root = Path(__file__).resolve().parents[1]
     html = (repository_root / "app" / "ui.html").read_text(encoding="utf-8")
-    scripts = re.findall(r"<script\\b[^>]*>(.*?)</script>", html, flags=re.DOTALL)
+    scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", html, flags=re.DOTALL)
     assert scripts, "Expected at least one inline script in app/ui.html"
 
     script_path = tmp_path / "ui.js"
