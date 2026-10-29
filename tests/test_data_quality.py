@@ -312,7 +312,7 @@ def test_cleaning_rename_details_preserve_duplicate_original_labels():
 def test_loader_parses_csv_and_json_bytes_without_writing_to_disk():
     loader = DataLoader(max_file_size_bytes=1024)
 
-    csv_frame = loader.load_bytes("customer.csv", b"sales,region\\n100,East\\n200,West\\n")
+    csv_frame = loader.load_bytes("customer.csv", b"sales,region\n100,East\n200,West\n")
     assert csv_frame.to_dict(orient="records") == [
         {"sales": 100, "region": "East"},
         {"sales": 200, "region": "West"},
@@ -334,12 +334,12 @@ def test_loader_bytes_enforces_type_extension_empty_and_size_limits():
     with pytest.raises(ValueError, match="empty"):
         loader.load_bytes("empty.csv", b"")
     with pytest.raises(ValueError, match="too large"):
-        loader.load_bytes("large.csv", b"sales\\n1\\n")
+        loader.load_bytes("large.csv", b"sales\n1\n")
     with pytest.raises(TypeError, match="bytes-like"):
-        loader.load_bytes("sales.csv", "sales\\n1\\n")
+        loader.load_bytes("sales.csv", "sales\n1\n")
 
 
 def test_loader_bytes_sanitizes_filename_in_parse_errors():
     loader = DataLoader()
     with pytest.raises(ValueError, match="Could not parse dataset 'bad.csv'"):
-        loader.load_bytes("../../bad.csv", b"\\xff,\\xfe")
+        loader.load_bytes("../../bad.csv", b"\xff,\xfe")
