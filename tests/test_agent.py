@@ -166,3 +166,23 @@ def test_unexpected_execution_error_does_not_leak_internals(monkeypatch):
     assert "sensitive internal detail" not in response.answer
     assert "sensitive internal detail" not in (response.clarification or "")
     assert response.evidence is None
+
+
+@pytest.mark.parametrize("question", [
+    "What is total sales in 2025?",
+    "What is total sales for the last month?",
+    "What is total sales where region is East?",
+    "Why did sales increase?",
+    "Summarize the dataset and calculate total sales",
+])
+def test_unsupported_scope_or_mixed_intent_clarifies_instead_of_partially_answering(question):
+    response = ask(sample(), question)
+    assert response.status == "needs_clarification"
+    assert response.evidence is None
+    assert response.clarification
+
+
+def test_non_numeric_correlation_is_rejected_before_execution():
+    response = ask(sample(), "What is the correlation between sales and region?")
+    assert response.status == "error"
+    assert response.evidence["error"]["code"] == "NON_NUMERIC_COLUMN"
