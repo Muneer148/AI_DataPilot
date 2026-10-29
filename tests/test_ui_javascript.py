@@ -19,7 +19,7 @@ def test_inline_ui_javascript_passes_node_syntax_check(tmp_path):
     assert scripts, "Expected at least one inline script in app/ui.html"
 
     script_path = tmp_path / "ui.js"
-    script_path.write_text("\\n".join(scripts), encoding="utf-8")
+    script_path.write_text("\n".join(scripts), encoding="utf-8")
     result = subprocess.run(
         [node, "--check", str(script_path)],
         check=False,
