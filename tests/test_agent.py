@@ -1,6 +1,8 @@
 import pandas as pd
+import pytest
 
 from src.agent import ask, plan_question
+from src.agent.planner import AnalysisPlan
 
 
 def sample():
@@ -57,7 +59,6 @@ def test_correlation_requires_two_named_columns():
 
 
 def test_ollama_planner_is_an_explicit_opt_in(monkeypatch):
-    from src.agent import AnalysisPlan
     import src.agent.orchestrator as orchestrator
 
     def fake_plan(question, dataset, *, model=None, base_url=None):
@@ -75,6 +76,7 @@ def test_unknown_planner_mode_returns_controlled_error():
     response = ask(sample(), "total sales", planner="other")
     assert response.status == "error"
     assert response.evidence is None
+
 
 def test_ollama_failure_fails_closed_without_rules_fallback(monkeypatch):
     import src.agent.orchestrator as orchestrator
@@ -97,6 +99,60 @@ def test_ollama_failure_fails_closed_without_rules_fallback(monkeypatch):
     assert "500" not in response.answer
 
 
+def test_every_planner_output_is_validated_before_execution(monkeypatch):
+    import src.agent.orchestrator as orchestrator
+
+    def forbidden_execution(*args, **kwargs):
+        raise AssertionError("invalid plans must not reach the analytics executor")
+
+    monkeypatch.setattr(orchestrator, "_execute", forbidden_execution)
+    bad_plans = [
+        AnalysisPlan(operation="execute_python"),
+        AnalysisPlan(operation="aggregate", metric_column="profit", aggregation="sum"),
+        AnalysisPlan(operation="aggregate", metric_column="sales", aggregation="execute_sql"),
+        AnalysisPlan(operation="aggregate", metric_column="sales", aggregation="sum", limit=True),
+        AnalysisPlan(operation="aggregate", metric_column="sales", aggregation="sum", group_by=["region"]),
+        AnalysisPlan(operation="aggregate", metric_column="region", aggregation="sum"),
+    ]
+    for bad_plan in bad_plans:
+        monkeypatch.setattr(orchestrator, "plan_question", lambda *args, **kwargs: bad_plan)
+        response = ask(sample(), "What is the total sales?")
+        assert response.status == "error"
+        assert response.evidence is not None
+        assert response.evidence.get("error", {}).get("code")
+
+
+def test_grouped_row_count_uses_plan_limit(monkeypatch):
+    import src.agent.orchestrator as orchestrator
+
+    captured = {}
+
+    def fake_aggregate(dataset, **kwargs):
+        captured.update(kwargs)
+        from src.analytics.contracts import AnalyticsResult
+        return AnalyticsResult(
+            operation="aggregate", row_count=4,
+            records=[{"region": "East", "row_count": 2}],
+        )
+
+    monkeypatch.setattr(orchestrator, "aggregate_dataset", fake_aggregate)
+    plan = AnalysisPlan(operation="aggregate", group_by=("region",), aggregation="count_rows", limit=1)
+    response = orchestrator.ask(sample(), "count rows by region")
+    # The normal planner creates this same row-count plan with its default limit=10.
+    # This direct path primarily ensures execution uses the plan's bound.
+    validated = orchestrator.validate_plan(plan, sample())
+    orchestrator._execute(sample(), validated)
+    assert captured["limit"] == 1
+    assert response.status == "ok"
+
+
+def test_evidence_and_answer_share_the_same_calculated_value():
+    response = ask(sample(), "What is the total sales?")
+    evidence_value = response.evidence["records"][0]["sales__sum"]
+    assert response.status == "ok"
+    assert str(evidence_value) in response.answer
+
+
 def test_unexpected_execution_error_does_not_leak_internals(monkeypatch):
     import src.agent.orchestrator as orchestrator
 
@@ -110,3 +166,23 @@ def test_unexpected_execution_error_does_not_leak_internals(monkeypatch):
     assert "sensitive internal detail" not in response.answer
     assert "sensitive internal detail" not in (response.clarification or "")
     assert response.evidence is None
+
+
+@pytest.mark.parametrize("question", [
+    "What is total sales in 2025?",
+    "What is total sales for the last month?",
+    "What is total sales where region is East?",
+    "Why did sales increase?",
+    "Summarize the dataset and calculate total sales",
+])
+def test_unsupported_scope_or_mixed_intent_clarifies_instead_of_partially_answering(question):
+    response = ask(sample(), question)
+    assert response.status == "needs_clarification"
+    assert response.evidence is None
+    assert response.clarification
+
+
+def test_non_numeric_correlation_is_rejected_before_execution():
+    response = ask(sample(), "What is the correlation between sales and region?")
+    assert response.status == "error"
+    assert response.evidence["error"]["code"] == "NON_NUMERIC_COLUMN"

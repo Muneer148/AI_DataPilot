@@ -1,12 +1,11 @@
-"""Conservative orchestration: plan -> allow-listed tool -> evidence-backed response."""
+"""Conservative orchestration: plan -> validate -> allow-listed tool -> evidence-backed response."""
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from typing import Any
 
-import pandas as pd
-
 from .planner import AnalysisPlan, plan_question
+from .plan_validation import validate_plan
 from .ollama_provider import OllamaProviderError, plan_question_with_ollama
 from src.analytics import (
     AnalyticsError, aggregate_dataset, correlate_dataset, describe_dataset,
@@ -35,15 +34,16 @@ def _execute(dataset: Any, plan: AnalysisPlan):
         return correlate_dataset(dataset, columns=list(plan.group_by), method="pearson")
     if plan.operation == "aggregate":
         if plan.aggregation == "count_rows":
-            return aggregate_dataset(dataset, group_by=list(plan.group_by), aggregations={}, limit=100)
-        if not plan.metric_column:
-            raise AnalyticsError("A metric column is required for this aggregation.", code="MISSING_METRIC")
+            return aggregate_dataset(
+                dataset, group_by=list(plan.group_by), aggregations={}, limit=plan.limit
+            )
+        # validate_plan guarantees the metric and aggregation are present and allowed.
         return aggregate_dataset(
             dataset,
             group_by=list(plan.group_by),
-            aggregations={plan.metric_column: plan.aggregation or "sum"},
+            aggregations={plan.metric_column: plan.aggregation},
             sort_by=(f"{plan.metric_column}__{plan.aggregation}" if plan.group_by else None),
-            ascending=plan.aggregation in {"min"},
+            ascending=plan.aggregation == "min",
             limit=plan.limit,
         )
     raise AnalyticsError("The planned operation is not allow-listed.", code="UNSUPPORTED_OPERATION")
@@ -54,7 +54,6 @@ def _render(plan: AnalysisPlan, result: Any) -> str:
     if plan.operation == "describe":
         return f"Dataset summary calculated from {data.get('row_count', 0)} rows across {len(data.get('columns', []))} selected columns. See evidence.records for per-column values."
     if plan.operation == "count_rows":
-        # AnalyticsResult.row_count is the number of source rows considered.
         return f"Counted {data.get('row_count', 0)} rows in the dataset."
     if plan.operation == "correlation":
         return f"Calculated {data.get('metrics', {}).get('pair_count', len(data.get('records', [])))} correlation result(s) from the requested numeric columns. Correlation does not establish causation."
@@ -82,8 +81,8 @@ def ask(
     """Answer with deterministic analytics.
 
     planner='rules' is the default offline baseline. planner='ollama' explicitly
-    opts into local Ollama for proposing a structured plan; every plan is still
-    validated before the same allow-listed analytics functions execute.
+    opts into local Ollama for proposing a structured plan; the same shared runtime
+    contract validates either planner's output before an allow-listed tool executes.
     """
     if planner not in {"rules", "ollama"}:
         return AgentResponse(
@@ -93,11 +92,12 @@ def ask(
         )
     try:
         if planner == "ollama":
-            plan = plan_question_with_ollama(
+            proposed_plan = plan_question_with_ollama(
                 question, dataset, model=ollama_model, base_url=ollama_base_url
             )
         else:
-            plan = plan_question(question, dataset)
+            proposed_plan = plan_question(question, dataset)
+        plan = validate_plan(proposed_plan, dataset)
         result = _execute(dataset, plan)
         evidence = result.to_dict()
         answer = _render(plan, result)
@@ -106,11 +106,20 @@ def ask(
             warnings=list(evidence.get("warnings", [])),
         )
     except ValueError as exc:
-        # Includes planner clarification and analytics contract errors.
+        # Planner ambiguities need clarification; contract/analytics errors have codes.
         code = getattr(exc, "code", None)
         if code:
-            return AgentResponse(status="error", answer="I couldn't safely complete that analysis.", clarification=str(exc), evidence={"error": {"code": code, "details": getattr(exc, "details", {})}})
-        return AgentResponse(status="needs_clarification", answer="I won't guess what you meant.", clarification=str(exc))
+            return AgentResponse(
+                status="error",
+                answer="I couldn't safely complete that analysis.",
+                clarification=str(exc),
+                evidence={"error": {"code": code, "details": getattr(exc, "details", {})}},
+            )
+        return AgentResponse(
+            status="needs_clarification",
+            answer="I won't guess what you meant.",
+            clarification=str(exc),
+        )
     except OllamaProviderError as exc:
         return AgentResponse(
             status="error",
@@ -119,4 +128,8 @@ def ask(
         )
     except Exception:
         # Do not leak internals or fabricate a fallback result.
-        return AgentResponse(status="error", answer="The analysis could not be completed. No answer was inferred.", clarification="Please check the dataset and request, then retry.")
+        return AgentResponse(
+            status="error",
+            answer="The analysis could not be completed. No answer was inferred.",
+            clarification="Please check the dataset and request, then retry.",
+        )
