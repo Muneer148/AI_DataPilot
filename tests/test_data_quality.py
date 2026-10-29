@@ -11,6 +11,8 @@ from src.data.interfaces import prepare_dataset
 from src.data.profiling import profile_dataframe
 from src.data.validation import validate_dataframe
 from src.data.workflow import prepare_file, preview_dataframe, preview_file
+from src.data.loader import DataLoader
+from src.data.schema import infer_schema
 
 
 def test_validation_reports_missing_values_and_duplicates():
@@ -184,3 +186,182 @@ def test_preview_file_and_prepare_file_share_source_provenance(tmp_path):
     assert prepared.provenance.source_format == "csv"
     assert prepared.provenance.source_size_bytes == path.stat().st_size
     assert prepared.dataframe.equals(preview.cleaned_dataframe)
+
+
+
+def test_cleaning_handles_duplicate_column_labels_when_uniqueness_is_disabled():
+    df = pd.DataFrame(
+        [[" Alice ", " Bob "], ["", "Carol"]],
+        columns=["name", "name"],
+    )
+    original = df.copy(deep=True)
+    config = CleaningConfig(make_column_names_unique=False)
+
+    cleaned, report = clean_dataframe(df, config)
+
+    assert cleaned.columns.tolist() == ["name", "name"]
+    assert cleaned.iloc[0].tolist() == ["Alice", "Bob"]
+    assert pd.isna(cleaned.iloc[1, 0])
+    assert cleaned.iloc[1, 1] == "Carol"
+    assert report.blank_strings_replaced == 1
+    pd.testing.assert_frame_equal(df, original)
+
+
+def test_dataset_to_dict_excludes_sensitive_profile_examples_by_default():
+    df = pd.DataFrame({"email": ["private@example.com", "another@example.com"], "age": [21, 22]})
+    dataset = prepare_dataset(df)
+
+    serialized = dataset.to_dict()
+    assert "private@example.com" not in json.dumps(serialized)
+    assert "example_values" not in serialized["profile"]["column_profiles"][0]
+    assert "top_values" not in serialized["profile"]["column_profiles"][0]
+
+    with_examples = dataset.to_dict(include_value_examples=True)
+    assert "private@example.com" in json.dumps(with_examples)
+
+
+def test_required_columns_rejects_a_string_instead_of_iterating_characters():
+    df = pd.DataFrame({"sales": [10], "region": ["East"]})
+
+    with pytest.raises(TypeError, match="not a string"):
+        validate_dataframe(df, required_columns="sales")
+    with pytest.raises(TypeError, match="not a string"):
+        prepare_dataset(df, required_columns="sales")
+
+
+@pytest.mark.parametrize("threshold", [-0.1, 1.1, float("nan"), float("inf")])
+def test_validation_rejects_out_of_range_or_non_finite_missing_thresholds(threshold):
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        validate_dataframe(pd.DataFrame({"value": [1]}), max_missing_ratio=threshold)
+
+
+@pytest.mark.parametrize("threshold", ["0.5", True, None])
+def test_validation_rejects_non_numeric_missing_thresholds(threshold):
+    with pytest.raises(TypeError, match="finite number"):
+        validate_dataframe(pd.DataFrame({"value": [1]}), max_missing_ratio=threshold)
+
+
+@pytest.mark.parametrize("source_size", [-1, 1.5, True, "10"])
+def test_prepare_dataset_validates_source_size_type_and_range(source_size):
+    df = pd.DataFrame({"value": [1]})
+    if source_size == -1:
+        error = ValueError
+        message = "cannot be negative"
+    else:
+        error = TypeError
+        message = "non-negative integer"
+    with pytest.raises(error, match=message):
+        prepare_dataset(df, source_size_bytes=source_size)
+
+
+@pytest.mark.parametrize("limit_name", ["example_limit", "top_value_limit"])
+@pytest.mark.parametrize("limit", [-1, 1.5, True])
+def test_profile_limits_must_be_non_negative_integers(limit_name, limit):
+    kwargs = {limit_name: limit}
+    error = ValueError if limit == -1 else TypeError
+    with pytest.raises(error, match="non-negative integer"):
+        profile_dataframe(pd.DataFrame({"value": [1]}), **kwargs)
+
+
+def test_profile_limit_zero_is_valid():
+    profile = profile_dataframe(
+        pd.DataFrame({"label": ["secret", "public"]}),
+        example_limit=0,
+        top_value_limit=0,
+    )
+    assert profile.column_profiles[0].example_values == ()
+    assert profile.column_profiles[0].top_values == ()
+
+
+
+def test_duplicate_check_skips_are_reported_as_unknown_not_zero(monkeypatch):
+    df = pd.DataFrame({"payload": [{"private": "x"}, {"private": "y"}]})
+
+    def unsupported_duplicate_check(self, *args, **kwargs):
+        raise TypeError("synthetic unhashable values")
+
+    monkeypatch.setattr(pd.DataFrame, "duplicated", unsupported_duplicate_check)
+
+    profile = profile_dataframe(df)
+    metadata = infer_schema(df)
+    validation = validate_dataframe(df)
+
+    assert profile.duplicate_rows is None
+    assert profile.duplicate_check_skipped is True
+    assert profile.to_dict()["duplicate_check_skipped"] is True
+    assert metadata.duplicate_rows is None
+    assert metadata.duplicate_check_skipped is True
+    assert any(issue.code == "DUPLICATE_CHECK_SKIPPED" for issue in validation.warnings)
+
+
+def test_cleaning_rename_details_preserve_duplicate_original_labels():
+    df = pd.DataFrame([[1, 2]], columns=[" amount ", " amount "])
+
+    cleaned, report = clean_dataframe(df)
+
+    assert cleaned.columns.tolist() == ["amount", "amount_2"]
+    # The backwards-compatible mapping cannot represent both duplicate keys.
+    assert report.renamed_columns[" amount "] == "amount_2"
+    assert report.renamed_column_details == (
+        {"position": 0, "original_name": " amount ", "cleaned_name": "amount"},
+        {"position": 1, "original_name": " amount ", "cleaned_name": "amount_2"},
+    )
+    assert report.to_dict()["renamed_column_details"][0]["position"] == 0
+
+
+def test_loader_parses_csv_and_json_bytes_without_writing_to_disk():
+    loader = DataLoader(max_file_size_bytes=1024)
+
+    csv_frame = loader.load_bytes("customer.csv", b"sales,region\n100,East\n200,West\n")
+    assert csv_frame.to_dict(orient="records") == [
+        {"sales": 100, "region": "East"},
+        {"sales": 200, "region": "West"},
+    ]
+
+    json_frame = loader.load_bytes("customers.json", b'[{"sales": 100, "region": "East"}]')
+    assert json_frame.to_dict(orient="records") == [{"sales": 100, "region": "East"}]
+
+
+def test_loader_bytes_enforces_type_extension_empty_and_size_limits():
+    with pytest.raises(TypeError, match="positive integer"):
+        DataLoader(max_file_size_bytes=True)
+    with pytest.raises(TypeError, match="positive integer"):
+        DataLoader(max_file_size_bytes=1.5)
+
+    loader = DataLoader(max_file_size_bytes=4)
+    with pytest.raises(ValueError, match="Unsupported file type"):
+        loader.load_bytes("payload.exe", b"data")
+    with pytest.raises(ValueError, match="empty"):
+        loader.load_bytes("empty.csv", b"")
+    with pytest.raises(ValueError, match="too large"):
+        loader.load_bytes("large.csv", b"sales\n1\n")
+    with pytest.raises(TypeError, match="bytes-like"):
+        loader.load_bytes("sales.csv", "sales\n1\n")
+
+
+def test_loader_bytes_sanitizes_filename_in_parse_errors():
+    loader = DataLoader()
+    with pytest.raises(ValueError, match="Could not parse dataset 'bad.csv'"):
+        loader.load_bytes("../../bad.csv", b"\xff,\xfe")
+
+
+
+def test_loader_parses_xlsx_bytes_with_declared_engine():
+    from io import BytesIO
+
+    buffer = BytesIO()
+    pd.DataFrame({"sales": [100, 200], "region": ["East", "West"]}).to_excel(
+        buffer, index=False, engine="openpyxl"
+    )
+
+    loaded = DataLoader().load_bytes("sales.xlsx", buffer.getvalue())
+
+    assert loaded.to_dict(orient="records") == [
+        {"sales": 100, "region": "East"},
+        {"sales": 200, "region": "West"},
+    ]
+
+
+def test_loader_bytes_returns_controlled_error_for_corrupt_spreadsheet():
+    with pytest.raises(ValueError, match="Could not parse dataset 'broken.xlsx'"):
+        DataLoader().load_bytes("broken.xlsx", b"not a valid spreadsheet archive")

@@ -139,7 +139,7 @@ The demo uses the same cleaning configuration for preview and preparation, block
 
 ### Model handoff
 - `to_model_context()` includes bounded schema hints, profiles, quality findings and provenance but no raw rows.
-- Value examples and frequent values are excluded by default because they can contain sensitive data.
+- `AnalysisReadyDataset.to_dict()` and `to_model_context()` exclude sample values and frequent values by default because they can contain sensitive data; include them only through the explicit `include_value_examples=True` opt-in.
 - Exact row-level calculations must be executed by deterministic tools against `dataset.dataframe`; the LLM should interpret questions and plan analysis, not guess results from summaries.
 
 ## Repository structure

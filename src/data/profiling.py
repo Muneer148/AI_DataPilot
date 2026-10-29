@@ -4,6 +4,7 @@ import math
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time
+from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -39,14 +40,16 @@ class DatasetProfile:
 
     rows: int
     columns: int
-    duplicate_rows: int
+    duplicate_rows: int | None
     column_profiles: tuple[ColumnProfile, ...]
+    duplicate_check_skipped: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "rows": self.rows,
             "columns": self.columns,
             "duplicate_rows": self.duplicate_rows,
+            "duplicate_check_skipped": self.duplicate_check_skipped,
             "column_profiles": [profile.to_dict() for profile in self.column_profiles],
         }
 
@@ -153,8 +156,11 @@ def profile_dataframe(
     """Create a deterministic, bounded profile without changing the input DataFrame."""
     if not isinstance(df, pd.DataFrame):
         raise TypeError("df must be a pandas DataFrame.")
-    if example_limit < 0 or top_value_limit < 0:
-        raise ValueError("Profile limits must be non-negative.")
+    for name, limit in (("example_limit", example_limit), ("top_value_limit", top_value_limit)):
+        if isinstance(limit, bool) or not isinstance(limit, Integral):
+            raise TypeError(f"{name} must be a non-negative integer.")
+        if limit < 0:
+            raise ValueError(f"{name} must be a non-negative integer.")
 
     profiles: list[ColumnProfile] = []
     row_count = len(df)
@@ -194,15 +200,18 @@ def profile_dataframe(
             )
         )
 
+    duplicate_check_skipped = False
     try:
         duplicate_rows = int(df.duplicated().sum())
-    except TypeError:
-        # Nested object values can be unhashable; avoid failing the whole profile.
-        duplicate_rows = 0
+    except (TypeError, ValueError):
+        # Unknown is not zero: preserve that distinction for downstream users.
+        duplicate_rows = None
+        duplicate_check_skipped = True
 
     return DatasetProfile(
         rows=row_count,
         columns=len(df.columns),
         duplicate_rows=duplicate_rows,
         column_profiles=tuple(profiles),
+        duplicate_check_skipped=duplicate_check_skipped,
     )

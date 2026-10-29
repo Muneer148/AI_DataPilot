@@ -39,6 +39,9 @@ class CleaningReport:
     empty_columns_removed: int
     blank_strings_replaced: int
     renamed_columns: dict[str, str]
+    # Lossless per-column rename history. The legacy dictionary is retained for
+    # compatibility but cannot represent repeated original labels uniquely.
+    renamed_column_details: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -83,13 +86,28 @@ def clean_dataframe(
         for old, new in zip(original_names, new_names)
         if old != new
     }
+    renamed_column_details = tuple(
+        {
+            "position": position,
+            "original_name": old,
+            "cleaned_name": new,
+        }
+        for position, (old, new) in enumerate(zip(original_names, new_names))
+        if old != new
+    )
     cleaned.columns = new_names
 
     blank_strings_replaced = 0
     if config.strip_string_values or config.blank_strings_to_missing:
-        object_columns = cleaned.select_dtypes(include=["object", "string"]).columns
-        for column in object_columns:
-            series = cleaned[column]
+        # Work by column position: when callers deliberately disable unique
+        # names, selecting by label can return multiple columns as a DataFrame.
+        string_positions = [
+            position
+            for position, dtype in enumerate(cleaned.dtypes)
+            if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype)
+        ]
+        for position in string_positions:
+            series = cleaned.iloc[:, position]
             if config.strip_string_values:
                 series = series.map(
                     lambda value: value.strip() if isinstance(value, str) else value
@@ -100,7 +118,7 @@ def clean_dataframe(
                 )
                 blank_strings_replaced += int(blank_mask.sum())
                 series = series.mask(blank_mask, pd.NA)
-            cleaned[column] = series
+            cleaned.isetitem(position, series)
 
     empty_rows_removed = 0
     if config.drop_empty_rows:
@@ -134,5 +152,6 @@ def clean_dataframe(
         empty_columns_removed=empty_columns_removed,
         blank_strings_replaced=blank_strings_replaced,
         renamed_columns=renamed_columns,
+        renamed_column_details=renamed_column_details,
     )
     return cleaned, report
