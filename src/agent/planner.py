@@ -54,11 +54,12 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
     # Refuse common scope markers instead of silently answering only part of a request.
     unsupported_scope = (
         r"\b(?:forecast|predict|prediction|caus(?:e|es|ed|al)|causality|impact|effect)\b",
-        r"\b(?:where|filtered\s+by|greater\s+than|less\s+than|at\s+least|at\s+most|above|below|between|excluding|except)\b",
+        r"\b(?:where|filtered\s+by|greater\s+than|less\s+than|at\s+least|at\s+most|above|below|excluding|except)\b",
         r"\b(?:last|previous|past|during|since|before|after|monthly|weekly|daily|quarterly)\b",
         r"\b20\d{2}\b",
     )
-    if any(re.search(pattern, q) for pattern in unsupported_scope):
+    if (any(re.search(pattern, q) for pattern in unsupported_scope)
+            or ("between" in q and not any(token in q for token in ("correlation", "correlate", "relationship")))):
         raise ValueError(
             "This request appears to need filtering, a time period, forecasting, or causal analysis that this MVP does not support. "
             "Please ask for one supported unfiltered summary, aggregation, row count, or two-column correlation."
@@ -66,7 +67,7 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
 
     matched = _column_matches(q, columns)
     summary_requested = any(token in q for token in ("describe", "summary", "summarize", "profile", "overview"))
-    aggregation_requested = any(token in q for token in ("average", "mean", "avg", "median", "maximum", "highest", "largest", "max", "minimum", "lowest", "smallest", "min", "count", "how many", "sum", "total", "overall"))
+    aggregation_requested = bool(re.search(r"\b(?:average|mean|avg|median|maximum|highest|largest|max|minimum|lowest|smallest|min|count|how many|sum|total|overall)\b", q))
     if summary_requested and aggregation_requested:
         raise ValueError("The request combines a dataset summary with a separate metric calculation. Please ask one question at a time.")
     if summary_requested:
