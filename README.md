@@ -33,6 +33,31 @@ The feature branches contain a build guide for each remaining team member. Each 
 
 **Integration baseline:** use the current `feature/data-foundation` branch as the source of truth. Check its latest commit and CI status when integrating; do not pin downstream work to an older documented commit. Bring the current branch into the relevant feature branch through the team's agreed merge/rebase workflow. Keep each member's code ownership separate and integrate through documented contracts and tests.
 
+## Local analyst workspace (review build)
+
+The current integration candidate exposes the FastAPI application and responsive browser UI. It supports CSV paste plus CSV/XLSX/XLS/JSON file uploads, a server-side non-destructive quality/cleaning preview, explicit UI approval, bounded agent analysis, evidence inspection, and the existing price/cost diagnostic.
+
+Run from the repository root:
+
+```bash
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+Open `http://127.0.0.1:8000`. Health check: `http://127.0.0.1:8000/api/health`.
+
+The browser flow is preview → review source validation and cleaning report → approve preparation → ask a question → inspect actual deterministic results/evidence. The web API enforces a 10 MiB upload cap, 5,000 rows and 50 columns. The pasted-CSV API has a separate 1,000,000-character cap. The UI does not send raw dataset rows to Ollama planning, and the demo does not persist datasets.
+
+This is a draft integration candidate, not a production deployment. Its branch contains the bounded agent, analytics code in its current base history and a copy of the data foundation needed to verify the combined workflow. Review the open PRs and actual branch ancestry before choosing the final merge sequence.
+
+Run tests from the repository root:
+
+```bash
+python -m pytest -q
+```
+
+The test suite does not establish live Ollama/Qwen inference or visual/browser quality; verify those separately when preparing the demo.
+
 ## Data preparation workflow
 
 ```text

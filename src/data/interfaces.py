@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from numbers import Integral
+from pathlib import Path
+from typing import Any, Iterable
+
+import pandas as pd
+
+from .cleaning import CleaningConfig, CleaningReport, clean_dataframe
+from .loader import DataLoader
+from .profiling import DatasetProfile, profile_dataframe
+from .schema import DatasetMetadata, infer_schema
+from .validation import ValidationReport, validate_dataframe
+
+
+@dataclass(frozen=True)
+class DatasetProvenance:
+    """Traceable, non-row-level record of how a prepared dataset was produced."""
+
+    source_name: str
+    source_format: str
+    source_size_bytes: int | None
+    input_rows: int
+    input_columns: int
+    output_rows: int
+    output_columns: int
+    cleaning_config: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class AnalysisReadyDataset:
+    """Stable data contract for downstream AI and analytics modules."""
+
+    dataframe: pd.DataFrame
+    metadata: DatasetMetadata
+    profile: DatasetProfile
+    validation: ValidationReport
+    cleaning: CleaningReport
+    source_validation: ValidationReport | None = None
+    provenance: DatasetProvenance | None = None
+
+    @property
+    def rows(self) -> int:
+        return len(self.dataframe)
+
+    @property
+    def columns(self) -> list[str]:
+        return self.dataframe.columns.astype(str).tolist()
+
+    def get_column(self, name: str) -> pd.Series:
+        """Return one analysis-ready column, raising a clear error when absent."""
+        if name not in self.dataframe.columns:
+            raise KeyError(f"Column not found: {name}")
+        return self.dataframe[name].copy()
+
+    def select_columns(self, columns: Iterable[str]) -> pd.DataFrame:
+        """Return a copy containing only requested columns."""
+        selected = list(columns)
+        missing = [column for column in selected if column not in self.dataframe.columns]
+        if missing:
+            raise KeyError(f"Columns not found: {missing}")
+        return self.dataframe.loc[:, selected].copy()
+
+    def to_dict(self, *, include_value_examples: bool = False) -> dict[str, Any]:
+        """Return contract metadata without row records or sample values by default.
+
+        Profile examples and frequent values can contain sensitive data (for
+        example, email addresses or account identifiers). Include them only
+        when the caller has explicitly chosen to expose those values.
+        """
+        profile = self.profile.to_dict()
+        if not include_value_examples:
+            for column in profile["column_profiles"]:
+                column.pop("example_values", None)
+                column.pop("top_values", None)
+        return {
+            "rows": self.rows,
+            "columns": self.columns,
+            "metadata": self.metadata.to_dict(),
+            "profile": profile,
+            "validation": self.validation.to_dict(),
+            "source_validation": self.source_validation.to_dict() if self.source_validation else None,
+            "cleaning": self.cleaning.to_dict(),
+            "provenance": self.provenance.to_dict() if self.provenance else None,
+        }
+
+    def to_model_context(
+        self,
+        *,
+        max_columns: int = 100,
+        include_value_examples: bool = False,
+    ) -> dict[str, Any]:
+        """Build bounded LLM context without raw rows or examples by default.
+
+        Row-level analysis should run against the local DataFrame through
+        deterministic tools. The model must not infer exact calculations from
+        profile summaries alone.
+        """
+        if max_columns < 1:
+            raise ValueError("max_columns must be at least 1.")
+
+        included_names = self.columns[:max_columns]
+        included_set = set(included_names)
+        column_profiles: list[dict[str, Any]] = []
+        for profile in self.profile.column_profiles[:max_columns]:
+            item = profile.to_dict()
+            if not include_value_examples:
+                item.pop("example_values", None)
+                item.pop("top_values", None)
+            column_profiles.append(item)
+
+        schema_hints = {
+            "numerical_columns": [name for name in self.metadata.numerical_columns if name in included_set],
+            "categorical_columns": [name for name in self.metadata.categorical_columns if name in included_set],
+            "datetime_columns": [name for name in self.metadata.datetime_columns if name in included_set],
+            "datetime_like_columns": [name for name in self.metadata.datetime_like_columns if name in included_set],
+            "boolean_columns": [name for name in self.metadata.boolean_columns if name in included_set],
+            "identifier_columns": [name for name in self.metadata.identifier_columns if name in included_set],
+        }
+        return {
+            "dataset": {
+                "rows": self.rows,
+                "total_columns": len(self.columns),
+                "columns_included": len(included_names),
+                "schema_truncated": len(self.columns) > max_columns,
+            },
+            "schema_hints": schema_hints,
+            "column_profiles": column_profiles,
+            "validation": self.validation.to_dict(),
+            "source_validation": self.source_validation.to_dict() if self.source_validation else None,
+            "cleaning": self.cleaning.to_dict(),
+            "provenance": self.provenance.to_dict() if self.provenance else None,
+            "data_access": {
+                "raw_rows_included": False,
+                "guidance": "Use local analysis tools for row-level calculations; do not infer results from profile summaries alone.",
+            },
+        }
+
+
+def prepare_dataset(
+    df: pd.DataFrame,
+    *,
+    config: CleaningConfig | None = None,
+    required_columns: Iterable[str] | None = None,
+    max_missing_ratio: float = 1.0,
+    source_name: str = "in-memory dataset",
+    source_format: str = "dataframe",
+    source_size_bytes: int | None = None,
+) -> AnalysisReadyDataset:
+    """Clean, validate, profile and package a DataFrame with provenance."""
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame.")
+    if source_size_bytes is not None:
+        if isinstance(source_size_bytes, bool) or not isinstance(source_size_bytes, Integral):
+            raise TypeError("source_size_bytes must be a non-negative integer or None.")
+        if source_size_bytes < 0:
+            raise ValueError("source_size_bytes cannot be negative.")
+
+    config = config or CleaningConfig()
+    source_validation = validate_dataframe(df, allow_empty=True)
+    cleaned, cleaning_report = clean_dataframe(df, config)
+    validation = validate_dataframe(
+        cleaned,
+        required_columns=required_columns,
+        max_missing_ratio=max_missing_ratio,
+    )
+    if not validation.valid:
+        messages = "; ".join(issue.message for issue in validation.errors)
+        raise ValueError(f"Dataset failed validation: {messages}")
+
+    provenance = DatasetProvenance(
+        source_name=Path(source_name).name if source_name != "in-memory dataset" else source_name,
+        source_format=source_format.lower().lstrip("."),
+        source_size_bytes=source_size_bytes,
+        input_rows=len(df),
+        input_columns=len(df.columns),
+        output_rows=len(cleaned),
+        output_columns=len(cleaned.columns),
+        cleaning_config=asdict(config),
+    )
+    return AnalysisReadyDataset(
+        dataframe=cleaned,
+        metadata=infer_schema(cleaned),
+        profile=profile_dataframe(cleaned),
+        validation=validation,
+        cleaning=cleaning_report,
+        source_validation=source_validation,
+        provenance=provenance,
+    )
