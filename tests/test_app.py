@@ -63,7 +63,7 @@ def test_row_and_column_limits_are_enforced():
 
 
 def test_server_preview_returns_cleaning_report_without_profile_examples():
-    payload = PreviewRequest(csv_text=" sales , region \\n10, East \\n20,West\\n")
+    payload = PreviewRequest(csv_text=" sales , region \n10, East \n20,West\n")
 
     result = preview(payload)
 
@@ -76,7 +76,7 @@ def test_server_preview_returns_cleaning_report_without_profile_examples():
 
 
 def test_analysis_can_use_explicitly_approved_prepared_dataset():
-    text = " sales , region \\n10, East \\n20, West\\n"
+    text = " sales , region \n10, East \n20, West\n"
 
     result = run_analysis(text, "What is the average sales?", prepare=True)
 
@@ -88,7 +88,7 @@ def test_analysis_can_use_explicitly_approved_prepared_dataset():
 
 
 def test_upload_preview_reads_csv_bytes_without_temporary_file():
-    upload = UploadFile(filename="sales.csv", file=BytesIO(b"sales,region\\n100,East\\n200,West\\n"))
+    upload = UploadFile(filename="sales.csv", file=BytesIO(b"sales,region\n100,East\n200,West\n"))
 
     result = asyncio.run(preview_upload(upload))
 
@@ -99,7 +99,7 @@ def test_upload_preview_reads_csv_bytes_without_temporary_file():
 
 
 def test_upload_analyze_uses_same_preparation_contract():
-    upload = UploadFile(filename="sales.csv", file=BytesIO(b" sales ,region\\n10,East\\n20,West\\n"))
+    upload = UploadFile(filename="sales.csv", file=BytesIO(b" sales ,region\n10,East\n20,West\n"))
 
     result = asyncio.run(
         analyze_upload(
