@@ -35,4 +35,4 @@ def test_home_page_requires_preview_and_approval_before_analysis():
     html = index()
     assert "if(!previewApproval||!lastPreparation||lastPreparation.ready!==true)" in html
     assert "prepare:true" in html
-    assert "dataset changed. Run the server-side preview again." in html.lower()
+    assert "dataset changed. run the server-side preview again." in html.lower()
