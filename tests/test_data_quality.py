@@ -11,6 +11,8 @@ from src.data.interfaces import prepare_dataset
 from src.data.profiling import profile_dataframe
 from src.data.validation import validate_dataframe
 from src.data.workflow import prepare_file, preview_dataframe, preview_file
+from src.data.loader import DataLoader
+from src.data.schema import infer_schema
 
 
 def test_validation_reports_missing_values_and_duplicates():
@@ -269,3 +271,75 @@ def test_profile_limit_zero_is_valid():
     )
     assert profile.column_profiles[0].example_values == ()
     assert profile.column_profiles[0].top_values == ()
+
+
+
+def test_duplicate_check_skips_are_reported_as_unknown_not_zero(monkeypatch):
+    df = pd.DataFrame({"payload": [{"private": "x"}, {"private": "y"}]})
+
+    def unsupported_duplicate_check(self, *args, **kwargs):
+        raise TypeError("synthetic unhashable values")
+
+    monkeypatch.setattr(pd.DataFrame, "duplicated", unsupported_duplicate_check)
+
+    profile = profile_dataframe(df)
+    metadata = infer_schema(df)
+    validation = validate_dataframe(df)
+
+    assert profile.duplicate_rows is None
+    assert profile.duplicate_check_skipped is True
+    assert profile.to_dict()["duplicate_check_skipped"] is True
+    assert metadata.duplicate_rows is None
+    assert metadata.duplicate_check_skipped is True
+    assert any(issue.code == "DUPLICATE_CHECK_SKIPPED" for issue in validation.warnings)
+
+
+def test_cleaning_rename_details_preserve_duplicate_original_labels():
+    df = pd.DataFrame([[1, 2]], columns=[" amount ", " amount "])
+
+    cleaned, report = clean_dataframe(df)
+
+    assert cleaned.columns.tolist() == ["amount", "amount_2"]
+    # The backwards-compatible mapping cannot represent both duplicate keys.
+    assert report.renamed_columns[" amount "] == "amount_2"
+    assert report.renamed_column_details == (
+        {"position": 0, "original_name": " amount ", "cleaned_name": "amount"},
+        {"position": 1, "original_name": " amount ", "cleaned_name": "amount_2"},
+    )
+    assert report.to_dict()["renamed_column_details"][0]["position"] == 0
+
+
+def test_loader_parses_csv_and_json_bytes_without_writing_to_disk():
+    loader = DataLoader(max_file_size_bytes=1024)
+
+    csv_frame = loader.load_bytes("customer.csv", b"sales,region\\n100,East\\n200,West\\n")
+    assert csv_frame.to_dict(orient="records") == [
+        {"sales": 100, "region": "East"},
+        {"sales": 200, "region": "West"},
+    ]
+
+    json_frame = loader.load_bytes("customers.json", b'[{"sales": 100, "region": "East"}]')
+    assert json_frame.to_dict(orient="records") == [{"sales": 100, "region": "East"}]
+
+
+def test_loader_bytes_enforces_type_extension_empty_and_size_limits():
+    with pytest.raises(TypeError, match="positive integer"):
+        DataLoader(max_file_size_bytes=True)
+    with pytest.raises(TypeError, match="positive integer"):
+        DataLoader(max_file_size_bytes=1.5)
+
+    loader = DataLoader(max_file_size_bytes=4)
+    with pytest.raises(ValueError, match="Unsupported file type"):
+        loader.load_bytes("payload.exe", b"data")
+    with pytest.raises(ValueError, match="empty"):
+        loader.load_bytes("empty.csv", b"")
+    with pytest.raises(ValueError, match="too large"):
+        loader.load_bytes("large.csv", b"sales\\n1\\n")
+    with pytest.raises(TypeError, match="bytes-like"):
+        loader.load_bytes("sales.csv", "sales\\n1\\n")
+
+
+def test_loader_bytes_sanitizes_filename_in_parse_errors():
+    loader = DataLoader()
+    with pytest.raises(ValueError, match="Could not parse dataset 'bad.csv'"):
+        loader.load_bytes("../../bad.csv", b"\\xff,\\xfe")
