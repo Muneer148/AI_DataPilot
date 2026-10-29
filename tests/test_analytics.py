@@ -468,12 +468,18 @@ def test_outlier_float_overflow_is_warned_instead_of_silently_ignoring_candidate
 
 
 
-def test_correlation_warns_when_finite_inputs_overflow_internal_calculation():
+def test_correlation_warns_when_pair_calculation_returns_non_finite(monkeypatch):
+    # Exercise the undefined-result branch deterministically. Pandas versions can
+    # differ in whether extreme-but-finite data overflows or returns a stable value.
     frame = pd.DataFrame({
         "x": [1e308, -1e308, 1e308],
-        "y": [1e308, -1e308, 1e308],
+        "y": [1e308, -1e308, -1e308],
     })
 
+    def non_finite_corr(self, other, method="pearson", min_periods=None):
+        return np.nan
+
+    monkeypatch.setattr(pd.Series, "corr", non_finite_corr)
     result = correlate_dataset(frame, columns=["x", "y"], method="pearson")
 
     assert result.records == [{
