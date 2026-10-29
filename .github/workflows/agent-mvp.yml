@@ -3,7 +3,7 @@ name: Agent MVP tests
 on:
   push:
     branches:
-      - feature/agent-review-mvp
+      - "feature/**"
   pull_request:
     branches:
       - feature/analytics
