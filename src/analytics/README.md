@@ -139,6 +139,54 @@ A chart specification returned by `build_chart_spec` contains `type`, `title`, `
 
 Column selection and correlation are limited to 100 columns by default (and at most 100). Correlation returns at most 1,000 pairs; chart specifications at most 1,000 points; and public result-limit arguments accept values from 1 to 1,000. The default limits are lower for aggregation (`limit=100`) and outlier candidates (`max_results=100`). Invalid columns, methods, intervals, filters, aggregation operations, and limit values raise `AnalyticsError` with a stable error code. Read the warnings and metrics to distinguish a complete result from a bounded or skipped-data result.
 
+## Operation-by-operation metric semantics
+
+All operations accept either a pandas DataFrame or a prepared dataset object exposing a pandas DataFrame as `.dataframe`. The source DataFrame is read but not mutated. Duplicate column labels and blank/non-string column names are rejected. Explicit column selections must be ordered, unique lists of existing names. Numeric operations require a real numeric dtype (not boolean or complex); numeric-looking strings are not coerced. Missing values (`NaN`, `None`, `pd.NA`, `NaT`) are distinct from infinity. Positive and negative infinity are excluded from numeric calculations and counted/warned about where applicable. Floating-point calculations that overflow to a non-finite result produce JSON `null` plus a warning.
+
+Units are not inferred, converted or attached as metadata. A value is in the source column's units. Chart labels default to field names, so callers should make units clear in column names or titles when necessary.
+
+### `describe_dataset(dataset, columns=None, quantiles=(0.25, 0.5, 0.75), max_columns=100)`
+
+- **Input:** optional ordered, unique existing column names; `quantiles` must be unique finite numbers in [0, 1]; `max_columns` is an integer from 1 to 100.
+- **Output record keys:** `column`, `dtype`, `non_null_count`, `missing_count`, `missing_ratio`, `numeric_count`, `non_finite_count`, `sum`, `mean`, `median`, `min`, `max`, `std`, `quantiles`.
+- **Semantics:** `missing_ratio = missing_count / total rows`; an empty frame uses 0. Real numeric columns summarize finite non-null values only. `numeric_count` is 0 for a numeric column with no finite values and null for non-numeric columns. `sum` uses Python integer accumulation for integer values; float arithmetic follows IEEE-754 precision/range. `mean` is arithmetic mean; `median` and requested quantiles use pandas' default linear interpolation. `std` is sample standard deviation (ddof=1) and is null with fewer than two finite values. For numeric columns with no finite values, numeric result fields are null and quantile entries are null.
+- **Warnings/limits:** infinities are excluded and counted; overflowing floating-point summaries are null with a warning. At most 100 columns are returned; explicit unknown/duplicate columns and invalid quantiles raise `AnalyticsError`.
+
+### `aggregate_dataset(dataset, group_by=(), aggregations=None, filters=None, sort_by=None, ascending=False, limit=100)`
+
+- **Input:** `group_by` is an ordered sequence of existing columns; `aggregations` maps source columns to one or more operation names. Supported operations are `count`, `sum`, `mean`, `median`, `min`, `max`, and `std`. Numeric aggregation operations require a real numeric dtype; text min/max work only where values are mutually comparable.
+- **Filters:** sequential list/tuple of mappings with `column`, `operator` and, except for null operators, `value`. Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `is_null`, `not_null`, and `contains`. Comparison values must be scalar; membership values must be a list/tuple/set of hashable members; `contains` is literal substring matching (not regex) on a string column with a string value. Use `is_null`/`not_null` for missingness; equality/inequality and negative-membership filters exclude missing rows. Incompatible types and unknown operators/columns raise `AnalyticsError`.
+- **Grouping/sorting:** missing grouping keys are retained; grouping preserves first-seen key order before an optional stable `sort_by` sort (missing sort values last). `ascending` must be boolean. `count` counts non-null values; `row_count` counts rows in a group and includes rows whose aggregated field is null. Without grouping, the function returns a single global record even for empty filtered input.
+- **Output:** global/group records contain `row_count`, grouping fields, and fields named `<column>__<operation>`. The envelope's `row_count` is filtered row count; metrics include `group_count` and `returned_group_count`; parameters retain normalized filters and sort/limit settings.
+- **Nulls/limits:** numeric summaries exclude infinite values; `count` uses pandas non-null semantics. `std` is sample standard deviation and null with fewer than two values. `limit` is an integer from 1 to 1,000 (default 100); output is truncated after aggregation/sorting and a warning is emitted. This result limit bounds returned records, not the work required to form every group.
+
+### `correlate_dataset(dataset, columns=None, method="pearson", min_periods=2, max_pairs=1000, max_columns=100)`
+
+- **Input:** real numeric columns only; default selection is every numeric non-boolean, non-complex column. Methods are Pearson, Spearman and Kendall. `min_periods` is an integer of at least 2; `max_columns` is from 1 to 100 and `max_pairs` from 1 to 1,000.
+- **Output record keys:** `column_a`, `column_b`, `correlation`, `sample_size`. Each pair uses rows where both inputs are finite and non-missing. Correlation is unitless and ranges from -1 to +1 when defined. The envelope reports possible and returned pair counts plus defined-pair count.
+- **Undefined/warnings:** a null correlation is returned when pair sample size is below `min_periods`, a column is constant, or a calculation returns a non-finite result. These cases are warned about, including possible numerical overflow/precision limits. Pair ordering follows the order of selected columns and is truncated at `max_pairs`. Correlation describes association, not causation.
+
+### `trend_dataset(dataset, time_column, value_column, interval="day", aggregation="sum", timezone="UTC", limit=1000)`
+
+- **Input:** two different existing columns. `time_column` must contain datetime values or parseable date strings (numeric timestamps are rejected); `value_column` must have a real numeric dtype. Intervals: `hour`, `day`, `week`, `month`, `quarter`, `year`. Aggregations: `count`, `sum`, `mean`, `median`, `min`, `max`. `timezone` is a valid timezone name; `limit` is 1–1,000.
+- **Time/null semantics:** naive timestamps are interpreted as UTC; timezone-aware timestamps are converted to the requested timezone before bucket assignment. Invalid/missing timestamps and missing/non-finite measures are excluded and reported separately. Week buckets use pandas' week-ending frequency; other month/quarter/year buckets are labeled at period starts. Only buckets present in the valid data are returned—missing periods are not synthesized.
+- **Output record keys:** `period` (JSON-safe ISO datetime representation) and `value`. Records are chronological. `row_count`/`valid_observation_count` count rows with both a valid timestamp and finite measure; metrics also expose total and returned bucket counts. Overflowed floating-point bucket values are null with a warning. If there are no valid observations, no chartable records are returned.
+
+### `detect_outliers(dataset, column, method="iqr", threshold=1.5, max_results=100)`
+
+- **Input:** a real numeric column, `method` either `iqr` or `zscore`, positive finite threshold and `max_results` from 1 to 1,000.
+- **IQR rule:** uses linear-interpolated Q1/Q3 and fences `Q1 - threshold * IQR` and `Q3 + threshold * IQR`; a value is flagged strictly outside the fences. `outlier_score` is distance beyond the applicable fence. `side` is `low` or `high`.
+- **Z-score rule:** uses mean and population standard deviation (ddof=0); candidates satisfy `abs(z) > threshold`. `outlier_score` is absolute z-score and `side` is `threshold_exceeded`. Missing/infinite inputs are excluded.
+- **Output:** records contain only `row_position`, `value`, `outlier_score`, `side`, and (for IQR) `lower_fence`/`upper_fence`. Metrics include method, threshold, finite sample size, total/returned candidate counts, center, scale and fences. One finite observation, zero variance for z-score, no finite observations, and unrepresentable overflowed thresholds are warned about; in the latter cases classification abstains. Output is the first `max_results` flagged row positions, not a random sample.
+- **Limitations:** candidates are only descriptive flags for human review, not proof of an error, fraud or cause. Records intentionally omit unrelated row values to limit exposure.
+
+### `build_chart_spec(result, chart_type="bar", x=..., y=..., max_points=100)` / `build_figure(...)`
+
+- **Input/allowed types:** accepts an `AnalyticsResult` or result mapping; chart type is `bar`, `line`, `scatter` or `pie`. `x` and `y` refer to fields already present in returned records, and `max_points` is 1–1,000.
+- **Output spec keys:** `type`, `title`, `x`, `y`, `data` (ordered `{x, y}` points), `source_operation`, `record_count`, `warnings`. The points are copied from the exact bounded analytics rows—there is no separate calculation. `build_figure` constructs the Plotly trace from the same points and stores the spec in figure metadata.
+- **Validation:** x must be a scalar string, number, boolean or null; numeric x must be finite. Bar/line/scatter y must be finite numeric or null (booleans and non-numeric values are rejected). Pie y must be finite, non-negative numeric (no nulls). Empty records yield an empty spec plus a warning; truncation is warned and preserves source record order.
+- **Visualization limits:** chart type is currently caller-selected rather than inferred. The backend does not enforce that line charts have date/ordered x-values or reorder arbitrary result rows; callers should use line charts only for genuinely ordered sequence/time records. The implemented spec is a single x/y series, not an independently computed aggregation, histogram or correlation matrix. No chart should be created when evidence cannot justify the requested encoding.
+
 ## Numerical and privacy policies
 
 - Missing ratios use all rows as the denominator. An empty dataset has a zero missing ratio.

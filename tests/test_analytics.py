@@ -489,3 +489,24 @@ def test_correlation_warns_when_pair_calculation_returns_non_finite(monkeypatch)
         "sample_size": 3,
     }]
     assert any("possible numeric overflow or precision limits" in warning for warning in result.warnings)
+
+
+
+def test_grouped_float_overflow_warnings_are_bounded_by_operation_and_column():
+    frame = pd.DataFrame({
+        "region": ["East", "East", "West", "West"],
+        "value": [1e308, 1e308, 1e308, 1e308],
+    })
+
+    result = aggregate_dataset(
+        frame,
+        group_by=["region"],
+        aggregations={"value": "sum"},
+    )
+
+    assert [row["value__sum"] for row in result.records] == [None, None]
+    matching = [
+        warning for warning in result.warnings
+        if "Aggregation 'sum' for column 'value'" in warning
+    ]
+    assert len(matching) == 1
