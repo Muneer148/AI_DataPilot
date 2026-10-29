@@ -122,4 +122,4 @@ def test_upload_preview_rejects_unsupported_extension_cleanly():
 
     assert result["status"] == "invalid_dataset"
     assert result["ready"] is False
-    assert "supported extension" in result["clarification"].lower()
+    assert "unsupported file type" in result["clarification"].lower()
