@@ -19,9 +19,10 @@ class DatasetMetadata:
     datetime_columns: list[str]
     boolean_columns: list[str]
     missing_cells: int
-    duplicate_rows: int
+    duplicate_rows: int | None
     datetime_like_columns: list[str] = field(default_factory=list)
     identifier_columns: list[str] = field(default_factory=list)
+    duplicate_check_skipped: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -97,10 +98,13 @@ def infer_schema(df: pd.DataFrame) -> DatasetMetadata:
         if _looks_identifier_like(name):
             identifiers.append(name)
 
+    duplicate_check_skipped = False
     try:
         duplicate_rows = int(df.duplicated().sum())
-    except TypeError:
-        duplicate_rows = 0
+    except (TypeError, ValueError):
+        # A skipped check is unknown, not a zero-duplicate finding.
+        duplicate_rows = None
+        duplicate_check_skipped = True
 
     return DatasetMetadata(
         rows=len(df),
@@ -114,4 +118,5 @@ def infer_schema(df: pd.DataFrame) -> DatasetMetadata:
         duplicate_rows=duplicate_rows,
         datetime_like_columns=datetime_like,
         identifier_columns=identifiers,
+        duplicate_check_skipped=duplicate_check_skipped,
     )
