@@ -119,10 +119,14 @@ def _aggregate_series(series: pd.Series, operation: str, column: str, warnings: 
         else:
             raise AnalyticsError(f"Unsupported aggregation '{operation}'", code="INVALID_AGGREGATION")
         if is_non_finite_float_result(result) and warnings is not None:
-            warnings.append(
+            warning = (
                 f"Aggregation '{operation}' for column '{column}' produced a non-finite "
                 "floating-point result; the affected value is null (possible numeric overflow)."
             )
+            # A group-by can contain many affected groups; retain one warning per
+            # operation/column rather than growing the warnings array with cardinality.
+            if warning not in warnings:
+                warnings.append(warning)
         return json_safe(result)
     except AnalyticsError:
         raise

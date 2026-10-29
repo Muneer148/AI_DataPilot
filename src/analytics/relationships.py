@@ -69,7 +69,7 @@ def correlate_dataset(
         if n:
             warnings.append(f"Column '{column}' has {n} infinite value(s), excluded from correlation.")
     records = []
-    constant_pairs = insufficient_pairs = 0
+    constant_pairs = insufficient_pairs = unstable_pairs = 0
     total_pair_count = len(selected) * (len(selected) - 1) // 2
     for i, left in enumerate(selected):
         for right in selected[i + 1:]:
@@ -84,7 +84,12 @@ def correlate_dataset(
                 constant_pairs += 1
             else:
                 value = pair[left].corr(pair[right], method=method, min_periods=min_periods)
-                corr = json_safe(value) if pd.notna(value) and np.isfinite(float(value)) else None
+                if pd.notna(value) and np.isfinite(float(value)):
+                    corr = json_safe(value)
+                else:
+                    # Finite inputs can still overflow intermediate covariance or
+                    # variance calculations. Preserve null semantics and explain it.
+                    unstable_pairs += 1
             records.append({"column_a": left, "column_b": right, "correlation": corr, "sample_size": count})
         if len(records) >= max_pairs:
             break
@@ -94,6 +99,11 @@ def correlate_dataset(
         warnings.append(f"{insufficient_pairs} pair(s) had fewer than {min_periods} complete observations.")
     if constant_pairs:
         warnings.append(f"{constant_pairs} pair(s) included a constant column; correlation is undefined.")
+    if unstable_pairs:
+        warnings.append(
+            f"{unstable_pairs} pair(s) produced non-finite correlation calculations despite "
+            "finite inputs; correlation is null (possible numeric overflow or precision limits)."
+        )
     if len(selected) < 2:
         warnings.append("At least two numeric columns are needed to calculate a relationship.")
     return AnalyticsResult(

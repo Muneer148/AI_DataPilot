@@ -465,3 +465,21 @@ def test_outlier_float_overflow_is_warned_instead_of_silently_ignoring_candidate
 
     assert result.records == []
     assert any("overflowed floating-point range" in warning for warning in result.warnings)
+
+
+
+def test_correlation_warns_when_finite_inputs_overflow_internal_calculation():
+    frame = pd.DataFrame({
+        "x": [1e308, -1e308, 1e308],
+        "y": [1e308, -1e308, 1e308],
+    })
+
+    result = correlate_dataset(frame, columns=["x", "y"], method="pearson")
+
+    assert result.records == [{
+        "column_a": "x",
+        "column_b": "y",
+        "correlation": None,
+        "sample_size": 3,
+    }]
+    assert any("possible numeric overflow or precision limits" in warning for warning in result.warnings)
