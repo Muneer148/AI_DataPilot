@@ -59,7 +59,7 @@ The MVP does not promise general conversational understanding. It currently does
 
 ## Test and CI evidence
 
-Local test command: `python -m pytest -q` from the repository root (the workflow uses Python 3.11, installs `requirements.txt`, and runs this command). A successful source edit is not test evidence. Record the GitHub Actions run URL, conclusion, Python version, and summary after the workflow has actually completed; do not mark this handoff as CI-passing based solely on code inspection.
+Verification recorded for this branch: GitHub Actions run [Agent MVP tests #69](https://github.com/Muneer148/AI_DataPilot/actions/runs/40825509410) completed successfully on Python 3.11.17 after installing `requirements.txt`; command `python -m pytest -q` reported `91 passed, 2 skipped in 1.22s`. The two skips remain skips, not passes. Local tests were not run in this editing environment. Rerun the workflow after subsequent code changes.
 
 ## Next integration dependency for Member 4
 
