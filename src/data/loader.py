@@ -60,7 +60,9 @@ class DataLoader:
             # Pandas accepts a text stream for JSON and UTF-8-sig removes a BOM.
             text = payload.decode("utf-8-sig")
             return pd.read_json(StringIO(text))
-        except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, UnicodeDecodeError, ImportError) as exc:
+        except Exception as exc:
+            # Parser libraries may raise several format-specific exception types
+            # (including zip/engine errors); keep uploads behind one safe boundary.
             raise ValueError(
                 f"Could not parse dataset '{file_name}'. Check its contents and ensure the format engine is installed."
             ) from exc
