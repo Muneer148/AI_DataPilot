@@ -53,10 +53,10 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
     # This MVP has no filter/date-range, forecasting, causal, or multi-step tools.
     # Refuse common scope markers instead of silently answering only part of a request.
     unsupported_scope = (
-        r"\b(?:forecast|predict|prediction|caus(?:e|es|ed|al)|causality|impact|effect)\\b",
-        r"\b(?:where|filtered\s+by|greater\s+than|less\s+than|at\s+least|at\s+most|above|below|between|excluding|except)\\b",
-        r"\b(?:last|previous|past|during|since|before|after|monthly|weekly|daily|quarterly)\\b",
-        r"\b20\d{2}\\b",
+        r"\b(?:forecast|predict|prediction|caus(?:e|es|ed|al)|causality|impact|effect)\b",
+        r"\b(?:where|filtered\s+by|greater\s+than|less\s+than|at\s+least|at\s+most|above|below|between|excluding|except)\b",
+        r"\b(?:last|previous|past|during|since|before|after|monthly|weekly|daily|quarterly)\b",
+        r"\b20\d{2}\b",
     )
     if any(re.search(pattern, q) for pattern in unsupported_scope):
         raise ValueError(
