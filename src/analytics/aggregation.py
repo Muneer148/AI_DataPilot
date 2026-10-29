@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, json_safe, sum_numeric_values, validate_columns, validate_limit
+from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, is_non_finite_float_result, json_safe, sum_numeric_values, validate_columns, validate_limit
 
 SUPPORTED_AGGREGATIONS = {"count", "sum", "mean", "median", "min", "max", "std"}
 NUMERIC_AGGREGATIONS = {"sum", "mean", "median", "std"}
@@ -93,7 +93,7 @@ def _apply_filters(dataframe: pd.DataFrame, filters: Sequence[Mapping[str, Any]]
     return work, normalized
 
 
-def _aggregate_series(series: pd.Series, operation: str, column: str):
+def _aggregate_series(series: pd.Series, operation: str, column: str, warnings: list[str] | None = None):
     if operation == "count":
         return int(series.count())
     if operation in NUMERIC_AGGREGATIONS or (operation in {"min", "max"} and pd.api.types.is_numeric_dtype(series.dtype)):
@@ -102,23 +102,32 @@ def _aggregate_series(series: pd.Series, operation: str, column: str):
     else:
         values = series.dropna()
     if values.empty:
-        return None if operation != "count" else 0
+        return None
     try:
         if operation == "sum":
-            return json_safe(sum_numeric_values(values))
-        if operation == "mean":
-            return json_safe(values.mean())
-        if operation == "median":
-            return json_safe(values.median())
-        if operation == "min":
-            return json_safe(values.min())
-        if operation == "max":
-            return json_safe(values.max())
-        if operation == "std":
-            return json_safe(values.std(ddof=1)) if len(values) > 1 else None
+            result = sum_numeric_values(values)
+        elif operation == "mean":
+            result = values.mean()
+        elif operation == "median":
+            result = values.median()
+        elif operation == "min":
+            result = values.min()
+        elif operation == "max":
+            result = values.max()
+        elif operation == "std":
+            result = values.std(ddof=1) if len(values) > 1 else None
+        else:
+            raise AnalyticsError(f"Unsupported aggregation '{operation}'", code="INVALID_AGGREGATION")
+        if is_non_finite_float_result(result) and warnings is not None:
+            warnings.append(
+                f"Aggregation '{operation}' for column '{column}' produced a non-finite "
+                "floating-point result; the affected value is null (possible numeric overflow)."
+            )
+        return json_safe(result)
+    except AnalyticsError:
+        raise
     except (TypeError, ValueError, OverflowError) as exc:
         raise AnalyticsError(f"Aggregation '{operation}' is incompatible with '{column}'", code="INCOMPATIBLE_AGGREGATION", details={"column": column, "aggregation": operation}) from exc
-    raise AnalyticsError(f"Unsupported aggregation '{operation}'", code="INVALID_AGGREGATION")
 
 
 def aggregate_dataset(
@@ -193,7 +202,7 @@ def aggregate_dataset(
                     name = f"{column}__{operation}"
                     if name in groups or name == "row_count":
                         raise AnalyticsError(f"Output name collision: {name}", code="OUTPUT_NAME_COLLISION")
-                    pieces.append(grouped[column].agg(lambda values, op=operation, col=column: _aggregate_series(values, op, col)).rename(name))
+                    pieces.append(grouped[column].agg(lambda values, op=operation, col=column: _aggregate_series(values, op, col, warnings)).rename(name))
             result_frame = pd.concat(pieces, axis=1).reset_index()
         else:
             result_frame = work.groupby(groups, dropna=False, sort=False, observed=True).size().rename("row_count").reset_index()
@@ -204,7 +213,7 @@ def aggregate_dataset(
                 name = f"{column}__{operation}"
                 if name == "row_count":
                     raise AnalyticsError("Output name collision: row_count", code="OUTPUT_NAME_COLLISION")
-                row[name] = _aggregate_series(work[column], operation, column)
+                row[name] = _aggregate_series(work[column], operation, column, warnings)
         result_frame = pd.DataFrame([row])
 
     if sort_by is not None:

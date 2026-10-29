@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, json_safe, sum_numeric_values, validate_columns, validate_limit
+from .contracts import AnalyticsError, AnalyticsResult, finite_numeric_series, get_dataset_context, is_non_finite_float_result, json_safe, sum_numeric_values, validate_columns, validate_limit
 
 INTERVALS = {"hour": "h", "day": "D", "week": "W", "month": "MS", "quarter": "QS", "year": "YS"}
 TREND_AGGREGATIONS = {"count", "sum", "mean", "median", "min", "max"}
@@ -57,7 +57,14 @@ def trend_dataset(
         result = grouped.agg(sum_numeric_values)
     else:
         result = grouped.agg(aggregation)
-    records = [{"period": json_safe(period), "value": json_safe(value)} for period, value in result.items()]
+    result_items = list(result.items())
+    overflow_buckets = sum(is_non_finite_float_result(value) for _, value in result_items)
+    if overflow_buckets:
+        warnings.append(
+            f"Trend aggregation '{aggregation}' produced non-finite floating-point results "
+            f"in {overflow_buckets} bucket(s); affected values are null (possible numeric overflow)."
+        )
+    records = [{"period": json_safe(period), "value": json_safe(value)} for period, value in result_items]
     bucket_count = len(records)
     if bucket_count > limit:
         warnings.append(f"Trend produced {bucket_count} buckets; only the most recent {limit} are returned.")

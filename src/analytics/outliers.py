@@ -61,24 +61,46 @@ def detect_outliers(
         if count < 2:
             warnings.append("At least two finite observations are recommended for IQR analysis.")
         q1, q3 = np.quantile(sample, [0.25, 0.75])
-        scale = float(q3 - q1)
-        lower, upper = float(q1 - threshold * scale), float(q3 + threshold * scale)
-        flagged = valid & ((values < lower) | (values > upper))
-        scores = np.where(values < lower, lower - values, values - upper)
-        scores[~flagged] = np.nan
+        with np.errstate(over="ignore", invalid="ignore"):
+            scale = float(q3 - q1)
+            raw_lower, raw_upper = q1 - threshold * scale, q3 + threshold * scale
         center = float(np.median(sample))
+        if not np.isfinite(scale) or not np.isfinite(raw_lower) or not np.isfinite(raw_upper):
+            warnings.append(
+                "IQR spread or fences overflowed floating-point range; no outlier candidates "
+                "were classified because the thresholds are not representable."
+            )
+            scale = None if not np.isfinite(scale) else scale
+            lower = upper = None
+            flagged = np.zeros(len(dataframe), dtype=bool)
+        else:
+            lower, upper = float(raw_lower), float(raw_upper)
+            flagged = valid & ((values < lower) | (values > upper))
+            with np.errstate(over="ignore", invalid="ignore"):
+                scores = np.where(values < lower, lower - values, values - upper)
+            scores[~flagged] = np.nan
     else:
-        center = float(np.mean(sample))
-        scale = float(np.std(sample, ddof=0))
+        with np.errstate(over="ignore", invalid="ignore"):
+            center = float(np.mean(sample))
+            scale = float(np.std(sample, ddof=0))
         if count < 2:
             warnings.append("At least two finite observations are required for z-score analysis.")
+            flagged = np.zeros(len(dataframe), dtype=bool)
+        elif not np.isfinite(center) or not np.isfinite(scale):
+            warnings.append(
+                "Z-score center or population standard deviation overflowed floating-point range; "
+                "no outlier candidates were classified."
+            )
+            center = center if np.isfinite(center) else None
+            scale = scale if np.isfinite(scale) else None
             flagged = np.zeros(len(dataframe), dtype=bool)
         elif scale == 0:
             warnings.append("Z-scores are undefined because the finite observations have zero variance.")
             flagged = np.zeros(len(dataframe), dtype=bool)
         else:
-            scores = np.abs((values - center) / scale)
-            flagged = valid & (scores > threshold)
+            with np.errstate(over="ignore", invalid="ignore"):
+                scores = np.abs((values - center) / scale)
+            flagged = valid & np.isfinite(scores) & (scores > threshold)
             scores[~flagged] = np.nan
     positions = np.flatnonzero(flagged)
     candidates = len(positions)

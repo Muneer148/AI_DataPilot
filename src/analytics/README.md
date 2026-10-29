@@ -142,7 +142,7 @@ Column selection and correlation are limited to 100 columns by default (and at m
 ## Numerical and privacy policies
 
 - Missing ratios use all rows as the denominator. An empty dataset has a zero missing ratio.
-- Numeric calculations exclude positive and negative infinity and report or warn about them. Numeric-looking strings are not coerced.
+- Numeric calculations exclude positive and negative infinity and report or warn about them. Numeric-looking strings are not coerced. If a calculation over finite floats overflows to infinity, its value is serialized as null and an explicit numeric-overflow warning is included; outlier rules with unrepresentable thresholds abstain from classifying candidates.
 - Standard deviation uses ddof=1 and is null when fewer than two usable values are available. Integer sums use Python integer accumulation to avoid fixed-width integer overflow; floating-point results still follow floating-point precision limits.
 - Aggregation count counts non-null values; row_count counts all filtered rows in each group. Missing grouping keys are retained. Equality, inequality and negative-membership filters exclude missing values; use is_null/not_null for missingness.
 - Correlation supports Pearson, Spearman and Kendall; it uses pairwise-complete finite observations and reports per-pair sample size. It analyzes at most 100 columns and returns at most 1,000 pairs by default; correlation does not prove causation.

@@ -152,6 +152,20 @@ def sum_numeric_values(series: pd.Series) -> int | float:
     return total.item() if isinstance(total, np.generic) else total
 
 
+def is_non_finite_float_result(value: Any) -> bool:
+    """Identify floating-point calculation results that cannot be represented as finite JSON numbers.
+
+    Integer results are intentionally excluded: Python integers can represent exact
+    sums larger than int64 without overflow.
+    """
+    if isinstance(value, (float, np.floating)) and not isinstance(value, (bool, np.bool_)):
+        try:
+            return not math.isfinite(float(value))
+        except (OverflowError, TypeError, ValueError):
+            return True
+    return False
+
+
 def validate_limit(limit: Any, *, parameter: str = "limit") -> int:
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_RESULT_ROWS:
         raise AnalyticsError(f"{parameter} must be an integer between 1 and {MAX_RESULT_ROWS}", code="INVALID_LIMIT", details={"parameter": parameter, "maximum": MAX_RESULT_ROWS})

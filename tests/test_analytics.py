@@ -426,3 +426,42 @@ def test_analytics_error_details_are_strict_json_serializable():
     error = AnalyticsError("invalid request", details={"bad_number": np.inf})
     error_json = json.dumps(error.to_dict(), allow_nan=False)
     assert '"bad_number": null' in error_json
+
+
+
+def test_float_overflow_is_explicitly_warned_across_numeric_summaries():
+    frame = pd.DataFrame({
+        "value": pd.Series([1e308, 1e308], dtype="float64"),
+        "date": ["2025-03-01", "2025-03-01"],
+    })
+
+    description = describe_dataset(frame, columns=["value"])
+    described = description.records[0]
+    assert described["sum"] is None
+    assert described["mean"] is None
+    assert described["std"] is None
+    assert any("possible numeric overflow" in warning for warning in description.warnings)
+
+    aggregation = aggregate_dataset(
+        frame, aggregations={"value": ["sum", "mean", "std"]}
+    )
+    aggregated = aggregation.records[0]
+    assert aggregated["value__sum"] is None
+    assert aggregated["value__mean"] is None
+    assert aggregated["value__std"] is None
+    assert any("possible numeric overflow" in warning for warning in aggregation.warnings)
+
+    trend = trend_dataset(
+        frame, time_column="date", value_column="value", aggregation="sum"
+    )
+    assert trend.records[0]["value"] is None
+    assert any("possible numeric overflow" in warning for warning in trend.warnings)
+
+
+@pytest.mark.parametrize("method", ["iqr", "zscore"])
+def test_outlier_float_overflow_is_warned_instead_of_silently_ignoring_candidates(method):
+    frame = pd.DataFrame({"value": pd.Series([-1e308, 1e308], dtype="float64")})
+    result = detect_outliers(frame, column="value", method=method)
+
+    assert result.records == []
+    assert any("overflowed floating-point range" in warning for warning in result.warnings)

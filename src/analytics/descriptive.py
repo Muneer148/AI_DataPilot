@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .contracts import AnalyticsError, AnalyticsResult, MAX_COLUMNS, finite_numeric_series, get_dataset_context, json_safe, sum_numeric_values, validate_columns
+from .contracts import AnalyticsError, AnalyticsResult, MAX_COLUMNS, finite_numeric_series, get_dataset_context, is_non_finite_float_result, json_safe, sum_numeric_values, validate_columns
 
 
 def describe_dataset(
@@ -63,12 +63,27 @@ def describe_dataset(
             record["non_finite_count"] = non_finite
             record["quantiles"] = {str(q): None for q in qs}
             if not values.empty:
+                # Keep raw calculation outputs long enough to distinguish missing data
+                # from overflow. json_safe intentionally maps non-finite floats to null.
+                raw_stats = {
+                    "sum": sum_numeric_values(values),
+                    "mean": values.mean(),
+                    "median": values.median(),
+                    "min": values.min(),
+                    "max": values.max(),
+                    "std": values.std(ddof=1) if len(values) > 1 else None,
+                }
+                raw_quantiles = {str(q): values.quantile(q) for q in qs}
+                if any(is_non_finite_float_result(value) for value in [
+                    *raw_stats.values(), *raw_quantiles.values()
+                ]):
+                    warnings.append(
+                        f"Column '{column}' produced a non-finite floating-point statistic; "
+                        "the affected result is null (possible numeric overflow)."
+                    )
                 record.update({
-                    "sum": json_safe(sum_numeric_values(values)), "mean": json_safe(values.mean()),
-                    "median": json_safe(values.median()), "min": json_safe(values.min()),
-                    "max": json_safe(values.max()),
-                    "std": json_safe(values.std(ddof=1)) if len(values) > 1 else None,
-                    "quantiles": {str(q): json_safe(values.quantile(q)) for q in qs},
+                    **{name: json_safe(value) for name, value in raw_stats.items()},
+                    "quantiles": {name: json_safe(value) for name, value in raw_quantiles.items()},
                 })
             if non_finite:
                 warnings.append(f"Column '{column}' has {non_finite} infinite value(s), excluded from numeric summaries.")
