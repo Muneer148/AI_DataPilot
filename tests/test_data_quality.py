@@ -360,3 +360,8 @@ def test_loader_parses_xlsx_bytes_with_declared_engine():
         {"sales": 100, "region": "East"},
         {"sales": 200, "region": "West"},
     ]
+
+
+def test_loader_bytes_returns_controlled_error_for_corrupt_spreadsheet():
+    with pytest.raises(ValueError, match="Could not parse dataset 'broken.xlsx'"):
+        DataLoader().load_bytes("broken.xlsx", b"not a valid spreadsheet archive")
