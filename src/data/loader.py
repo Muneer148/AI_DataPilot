@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from io import BytesIO, StringIO
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +19,51 @@ class DataLoader:
     DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
 
     def __init__(self, max_file_size_bytes: int | None = DEFAULT_MAX_FILE_SIZE_BYTES):
-        if max_file_size_bytes is not None and max_file_size_bytes <= 0:
-            raise ValueError("max_file_size_bytes must be positive or None.")
+        if max_file_size_bytes is not None:
+            if isinstance(max_file_size_bytes, bool) or not isinstance(max_file_size_bytes, Integral):
+                raise TypeError("max_file_size_bytes must be a positive integer or None.")
+            if max_file_size_bytes <= 0:
+                raise ValueError("max_file_size_bytes must be positive or None.")
         self.max_file_size_bytes = max_file_size_bytes
+
+    def load_bytes(self, filename: str, content: bytes | bytearray | memoryview) -> pd.DataFrame:
+        """Parse an uploaded file directly from bytes without writing it to disk.
+
+        The filename is used only to determine the supported format and report a
+        basename. The content is bounded before parsing; user-supplied paths are
+        never opened by this method.
+        """
+        if not isinstance(filename, str) or not filename.strip():
+            raise ValueError("A filename with a supported extension is required.")
+        file_name = Path(filename).name
+        suffix = Path(file_name).suffix.lower()
+        if suffix not in self.SUPPORTED_EXTENSIONS:
+            supported = ", ".join(sorted(self.SUPPORTED_EXTENSIONS))
+            raise ValueError(f"Unsupported file type '{suffix}'. Supported: {supported}")
+        if not isinstance(content, (bytes, bytearray, memoryview)):
+            raise TypeError("content must be bytes-like.")
+        payload = bytes(content)
+        if not payload:
+            raise ValueError("Dataset file is empty.")
+        if self.max_file_size_bytes is not None and len(payload) > self.max_file_size_bytes:
+            limit_mib = self.max_file_size_bytes / (1024 * 1024)
+            raise ValueError(
+                f"Dataset is too large ({len(payload)} bytes). "
+                f"Maximum allowed size is {limit_mib:g} MiB."
+            )
+
+        try:
+            if suffix == ".csv":
+                return pd.read_csv(BytesIO(payload))
+            if suffix in {".xlsx", ".xls"}:
+                return pd.read_excel(BytesIO(payload))
+            # Pandas accepts a text stream for JSON and UTF-8-sig removes a BOM.
+            text = payload.decode("utf-8-sig")
+            return pd.read_json(StringIO(text))
+        except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, UnicodeDecodeError, ImportError) as exc:
+            raise ValueError(
+                f"Could not parse dataset '{file_name}'. Check its contents and ensure the format engine is installed."
+            ) from exc
 
     def load(self, path: str | Path) -> pd.DataFrame:
         file_path = Path(path)
