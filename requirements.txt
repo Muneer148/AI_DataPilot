@@ -10,3 +10,6 @@ uvicorn
 pydantic
 python-dotenv
 pytest
+openpyxl
+xlrd
+python-multipart
