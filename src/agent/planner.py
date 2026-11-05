@@ -27,6 +27,14 @@ class AnalysisPlan:
         return result
 
 
+def _has_any_phrase(question: str, phrases: tuple[str, ...]) -> bool:
+    """Match intent tokens as complete words/phrases, never as substrings of columns."""
+    return any(
+        re.search(r"(?<!\\w)" + re.escape(phrase) + r"(?!\\w)", question)
+        for phrase in phrases
+    )
+
+
 def _column_matches(question: str, columns: list[str]) -> list[str]:
     q = question.casefold()
     matches = []
@@ -66,7 +74,7 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
         )
 
     matched = _column_matches(q, columns)
-    summary_requested = any(token in q for token in ("describe", "summary", "summarize", "profile", "overview"))
+    summary_requested = _has_any_phrase(q, ("describe", "summary", "summarize", "profile", "overview"))
     aggregation_requested = bool(re.search(r"\b(?:average|mean|avg|median|maximum|highest|largest|max|minimum|lowest|smallest|min|count|how many|sum|total|overall)\b", q))
     if summary_requested and aggregation_requested:
         raise ValueError("The request combines a dataset summary with a separate metric calculation. Please ask one question at a time.")
@@ -85,7 +93,7 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
 
     metric_candidates = [c for c in matched if c != group_col]
     # Avoid treating a group column as the metric when the user said 'count rows'.
-    if any(token in q for token in ("count rows", "number of rows", "row count", "how many rows")):
+    if _has_any_phrase(q, ("count rows", "number of rows", "row count", "how many rows")):
         if group_col:
             return AnalysisPlan(operation="aggregate", group_by=(group_col,), aggregation="count_rows")
         return AnalysisPlan(operation="count_rows", aggregation="count_rows")
@@ -93,26 +101,26 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
         raise ValueError("I couldn't map the question to a dataset column. Include an exact column name or ask for a dataset summary.")
     if len(metric_candidates) > 1:
         # A two-column correlation is supported only when explicitly requested.
-        if any(token in q for token in ("correlation", "correlate", "relationship")) and len(metric_candidates) == 2:
+        if _has_any_phrase(q, ("correlation", "correlate", "relationship")) and len(metric_candidates) == 2:
             return AnalysisPlan(operation="correlation", group_by=tuple(metric_candidates), reason="Explicit correlation request with two matched columns.")
         raise ValueError("More than one possible metric column matched. Name one metric column, or ask explicitly for correlation.")
     metric = metric_candidates[0] if metric_candidates else None
 
-    if any(token in q for token in ("correlation", "correlate", "relationship")):
+    if _has_any_phrase(q, ("correlation", "correlate", "relationship")):
         if len(metric_candidates) != 2:
             raise ValueError("Correlation needs exactly two numeric column names. Please name both columns.")
         return AnalysisPlan(operation="correlation", group_by=tuple(metric_candidates), reason="Explicit correlation request.")
-    if any(token in q for token in ("average", "mean", "avg")):
+    if _has_any_phrase(q, ("average", "mean", "avg")):
         op = "mean"
-    elif any(token in q for token in ("median",)):
+    elif _has_any_phrase(q, ("median",)):
         op = "median"
-    elif any(token in q for token in ("maximum", "highest", "largest", "max")):
+    elif _has_any_phrase(q, ("maximum", "highest", "largest", "max")):
         op = "max"
-    elif any(token in q for token in ("minimum", "lowest", "smallest", "min")):
+    elif _has_any_phrase(q, ("minimum", "lowest", "smallest", "min")):
         op = "min"
-    elif any(token in q for token in ("count", "how many")):
+    elif _has_any_phrase(q, ("count", "how many")):
         op = "count"
-    elif any(token in q for token in ("sum", "total", "overall")):
+    elif _has_any_phrase(q, ("sum", "total", "overall")):
         op = "sum"
     else:
         raise ValueError("I understand the column name, but not the requested operation. Try sum, average, median, min/max, count, correlation, or summary.")
