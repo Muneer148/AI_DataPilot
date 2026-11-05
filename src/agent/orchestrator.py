@@ -27,7 +27,7 @@ class AgentResponse:
 
 def _execute(dataset: Any, plan: AnalysisPlan):
     if plan.operation == "describe":
-        return describe_dataset(dataset)
+        return describe_dataset(dataset, max_columns=plan.limit)
     if plan.operation == "count_rows":
         return aggregate_dataset(dataset, aggregations={}, limit=1)
     if plan.operation == "correlation":
@@ -105,6 +105,12 @@ def ask(
             status="ok", answer=answer, plan=plan.to_dict(), evidence=evidence,
             warnings=list(evidence.get("warnings", [])),
         )
+    except OllamaProviderError as exc:
+        return AgentResponse(
+            status="error",
+            answer="The local planning model could not be used, so no analysis was inferred.",
+            clarification=str(exc),
+        )
     except ValueError as exc:
         # Planner ambiguities need clarification; contract/analytics errors have codes.
         code = getattr(exc, "code", None)
@@ -118,12 +124,6 @@ def ask(
         return AgentResponse(
             status="needs_clarification",
             answer="I won't guess what you meant.",
-            clarification=str(exc),
-        )
-    except OllamaProviderError as exc:
-        return AgentResponse(
-            status="error",
-            answer="The local planning model could not be used, so no analysis was inferred.",
             clarification=str(exc),
         )
     except Exception:
