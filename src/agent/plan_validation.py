@@ -102,6 +102,10 @@ def validate_plan(plan: Any, dataset: Any) -> AnalysisPlan:
     if aggregation == "count_rows":
         if metric is not None:
             raise _invalid("Grouped row count must not specify a metric column.")
+        if not groups:
+            raise _invalid(
+                "An ungrouped row count must use operation='count_rows', not aggregate/count_rows."
+            )
         return plan
     if metric is None or not metric.strip():
         raise _invalid("An aggregation requires one metric column.")
