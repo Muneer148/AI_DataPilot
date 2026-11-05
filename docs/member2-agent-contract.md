@@ -77,3 +77,34 @@ For the optional Ollama planner, the system message explicitly treats the questi
 Evidence-grounding regression tests cover exact single-metric values and grouped records. For grouped responses, the returned `evidence.records` remain the authoritative per-group values; the natural-language answer does not invent or independently recalculate those values.
 
 The expanded tests cover supported phrasing variants, ambiguous/mixed requests, an unsupported instruction-style request, grouped evidence grounding, the Ollama untrusted-input prompt boundary, and rejection of an unapproved model operation. Rerun the GitHub Actions workflow after these changes; do not treat prior CI results as validation of this Phase 2 revision.
+
+
+## Phase 3 — Testing and reliability
+
+Phase 3 strengthens regression coverage without expanding the agent's supported analysis scope.
+
+### Automated regression coverage
+
+- Shared runtime validation is exercised with missing metric/group columns, non-numeric metrics, and invalid correlation column types. Tests assert that invalid plans return structured errors before the analytics executor is called.
+- The optional Ollama path is tested through the orchestrator as well as at the provider boundary. A syntactically valid but semantically invalid Ollama plan must still fail the shared runtime validator.
+- Provider HTTP client/server failures (400, 404, 429, 500, and 503) must fail closed with `OllamaProviderError`.
+- Missing, null, and incorrectly typed provider response envelopes must fail closed rather than being interpreted as plans.
+- A bounded-reader regression verifies that provider response reads are capped at `MAX_PROVIDER_RESPONSE_BYTES + 1`; oversized responses are rejected before JSON parsing.
+- Existing tests continue to cover malformed plans, unsupported operations, prompt-injection attempts, schema-only provider input, provider timeouts, evidence grounding, and rules-based planning.
+
+### Live Ollama smoke test (separate from normal CI)
+
+A dedicated opt-in test lives at `tests/test_ollama_integration.py`. It is skipped unless `AI_DATAPILOT_RUN_OLLAMA_INTEGRATION=1` is explicitly set. It requires a running local Ollama service and the configured model to be available.
+
+Example local procedure:
+
+1. Start Ollama and pull the model configured by `AI_DATAPILOT_OLLAMA_MODEL` (the default is `qwen3.5:4b`).
+2. Set `AI_DATAPILOT_RUN_OLLAMA_INTEGRATION=1`. Set `OLLAMA_BASE_URL` and `AI_DATAPILOT_OLLAMA_MODEL` only if using non-default values.
+3. Run `python -m pytest -q tests/test_ollama_integration.py`.
+4. Record the model name, Ollama version, endpoint type (local only; do not record credentials), result, and test output in the project review notes.
+
+This smoke test checks one deterministic total-sales request end to end. It is not a comprehensive model evaluation and does not prove prompt-injection immunity. The mocked provider tests remain the repeatable CI gate; live inference is an additional environment-dependent check.
+
+### Phase 3 acceptance boundary
+
+Phase 3 is considered CI-verified when the full GitHub Actions test suite passes. The live Ollama smoke test remains separately reported as **not run**, **passed**, or **failed**; a CI skip must never be reported as a live model pass. No team integration branch is merged as part of this phase.
