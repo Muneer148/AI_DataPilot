@@ -186,3 +186,58 @@ def test_non_numeric_correlation_is_rejected_before_execution():
     response = ask(sample(), "What is the correlation between sales and region?")
     assert response.status == "error"
     assert response.evidence["error"]["code"] == "NON_NUMERIC_COLUMN"
+
+
+def test_discount_column_does_not_trigger_row_count_intent():
+    dataset = pd.DataFrame({"discount": [5, 10], "sales": [100, 200]})
+    response = ask(dataset, "What is the total discount?")
+    assert response.status == "ok"
+    assert response.plan["operation"] == "aggregate"
+    assert response.plan["metric_column"] == "discount"
+    assert response.plan["aggregation"] == "sum"
+    assert response.evidence["records"][0]["discount__sum"] == 15
+
+
+def test_account_column_does_not_trigger_count_intent():
+    dataset = pd.DataFrame({"account": [10, 20]})
+    response = ask(dataset, "What is the total account?")
+    assert response.status == "ok"
+    assert response.plan["aggregation"] == "sum"
+    assert response.evidence["records"][0]["account__sum"] == 30
+
+
+def test_ungrouped_aggregate_count_rows_plan_is_rejected():
+    from src.agent.orchestrator import validate_plan
+    from src.analytics.contracts import AnalyticsError
+
+    malformed = AnalysisPlan(
+        operation="aggregate", metric_column=None, group_by=(),
+        aggregation="count_rows",
+    )
+    with pytest.raises(AnalyticsError, match="operation='count_rows'"):
+        validate_plan(malformed, sample())
+
+
+def test_describe_plan_limit_bounds_number_of_columns(monkeypatch):
+    import src.agent.orchestrator as orchestrator
+
+    captured = {}
+    real_describe = orchestrator.describe_dataset
+
+    def capture_describe(dataset, **kwargs):
+        captured.update(kwargs)
+        return real_describe(dataset, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "describe_dataset", capture_describe)
+    plan = AnalysisPlan(operation="describe", limit=1)
+    orchestrator._execute(sample(), orchestrator.validate_plan(plan, sample()))
+    assert captured["max_columns"] == 1
+
+
+def test_invalid_ollama_endpoint_is_reported_as_error_not_clarification():
+    response = ask(
+        sample(), "What is the total sales?", planner="ollama",
+        ollama_base_url="file:///tmp/not-an-http-endpoint",
+    )
+    assert response.status == "error"
+    assert "HTTP(S)" in response.clarification
