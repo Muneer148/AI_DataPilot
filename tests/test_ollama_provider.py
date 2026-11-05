@@ -189,3 +189,61 @@ def test_question_is_marked_untrusted_and_unsafe_model_operation_is_rejected():
     with patch("src.agent.ollama_provider.urlopen", side_effect=fake_urlopen):
         with pytest.raises(OllamaProviderError, match="unsupported operation"):
             plan_question_with_ollama(question, frame())
+
+
+@pytest.mark.parametrize("status_code", [400, 404, 429, 500, 503])
+def test_http_client_and_server_errors_fail_closed(status_code):
+    from urllib.error import HTTPError
+
+    error = HTTPError(
+        url="http://127.0.0.1:11434/api/chat",
+        code=status_code,
+        msg="simulated provider HTTP failure",
+        hdrs=None,
+        fp=BytesIO(b"provider error body"),
+    )
+    with patch("src.agent.ollama_provider.urlopen", side_effect=error):
+        with pytest.raises(OllamaProviderError, match="Could not reach Ollama"):
+            plan_question_with_ollama("What is the total sales?", frame())
+
+
+@pytest.mark.parametrize(
+    "response_body",
+    [
+        {},
+        {"message": None},
+        {"message": {"content": None}},
+        {"message": {"content": []}},
+    ],
+)
+def test_invalid_provider_response_envelopes_fail_closed(response_body):
+    with patch(
+        "src.agent.ollama_provider.urlopen",
+        return_value=BytesIO(json.dumps(response_body).encode("utf-8")),
+    ):
+        with pytest.raises(OllamaProviderError, match="valid structured plan"):
+            plan_question_with_ollama("What is the total sales?", frame())
+
+
+def test_provider_response_reader_never_requests_unbounded_bytes():
+    from src.agent.ollama_provider import MAX_PROVIDER_RESPONSE_BYTES
+
+    valid_plan = {
+        "operation": "aggregate", "metric_column": "sales", "group_by": [],
+        "aggregation": "sum", "limit": 10, "clarification": "",
+    }
+    payload = {"message": {"content": json.dumps(valid_plan)}}
+
+    class BoundedReader(BytesIO):
+        requested_sizes = []
+
+        def read(self, size=-1):
+            self.requested_sizes.append(size)
+            return super().read(size)
+
+    reader = BoundedReader(json.dumps(payload).encode("utf-8"))
+    with patch("src.agent.ollama_provider.urlopen", return_value=reader):
+        result = plan_question_with_ollama("What is the total sales?", frame())
+
+    assert result.metric_column == "sales"
+    assert reader.requested_sizes == [MAX_PROVIDER_RESPONSE_BYTES + 1]
