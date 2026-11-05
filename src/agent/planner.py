@@ -30,7 +30,7 @@ class AnalysisPlan:
 def _has_any_phrase(question: str, phrases: tuple[str, ...]) -> bool:
     """Match intent tokens as complete words/phrases, never as substrings of columns."""
     return any(
-        re.search(r"(?<!\\w)" + re.escape(phrase) + r"(?!\\w)", question)
+        re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", question)
         for phrase in phrases
     )
 
