@@ -21,6 +21,9 @@ class OllamaProviderError(RuntimeError):
     """Ollama was unavailable or returned an invalid planning response."""
 
 
+MAX_PROVIDER_RESPONSE_BYTES = 1_048_576
+
+
 PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -139,7 +142,7 @@ def plan_question_with_ollama(
     if not isinstance(question, str) or not question.strip():
         raise ValueError("Please enter a question about the dataset.")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0 or timeout > 180:
-        raise ValueError("timeout must be between 0 and 180 seconds.")
+        raise OllamaProviderError("Ollama timeout must be between 0 and 180 seconds.")
     frame = _dataframe(dataset)
     if frame.empty:
         raise ValueError("The dataset has no rows to analyze.")
@@ -148,9 +151,9 @@ def plan_question_with_ollama(
     endpoint = (base_url or os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").rstrip("/")
     parsed = urlparse(endpoint)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
-        raise ValueError("OLLAMA_BASE_URL must be a valid HTTP(S) endpoint without embedded credentials.")
+        raise OllamaProviderError("OLLAMA_BASE_URL must be a valid HTTP(S) endpoint without embedded credentials.")
     if not isinstance(chosen_model, str) or not chosen_model.strip():
-        raise ValueError("An Ollama model name is required.")
+        raise OllamaProviderError("An Ollama model name is required.")
 
     # Only schema labels and dtypes are sent. No row values or profile examples.
     schema = [{"name": str(column), "dtype": str(frame[column].dtype)} for column in frame.columns]
@@ -182,7 +185,12 @@ def plan_question_with_ollama(
     )
     try:
         with urlopen(request, timeout=float(timeout)) as response:
-            response_body = json.loads(response.read().decode("utf-8"))
+            raw_response = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+            if len(raw_response) > MAX_PROVIDER_RESPONSE_BYTES:
+                raise OllamaProviderError(
+                    f"Ollama response exceeded the {MAX_PROVIDER_RESPONSE_BYTES}-byte limit."
+                )
+            response_body = json.loads(raw_response.decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, OSError) as exc:
         raise OllamaProviderError("Could not reach Ollama. Check that it is running, the model is installed, and the endpoint is reachable.") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
