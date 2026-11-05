@@ -324,3 +324,42 @@ def test_grouped_answer_is_grounded_in_all_returned_evidence_records():
     assert {row["region"] for row in evidence} == {"East", "West"}
     assert {row["sales__mean"] for row in evidence} == {110.0, 140.0}
     assert "returned records are the source of truth" in response.answer
+
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        AnalysisPlan(operation="aggregate", metric_column="missing", aggregation="sum"),
+        AnalysisPlan(operation="aggregate", metric_column="sales", aggregation="sum", group_by=("missing",)),
+        AnalysisPlan(operation="correlation", group_by=("sales", "region")),
+        AnalysisPlan(operation="aggregate", metric_column="region", aggregation="mean"),
+    ],
+)
+def test_runtime_contract_rejects_missing_columns_and_incompatible_dtypes_before_execution(monkeypatch, plan):
+    import src.agent.orchestrator as orchestrator
+
+    def forbidden_execution(*args, **kwargs):
+        raise AssertionError("invalid plan must not reach analytics execution")
+
+    monkeypatch.setattr(orchestrator, "_execute", forbidden_execution)
+    monkeypatch.setattr(orchestrator, "plan_question", lambda *args, **kwargs: plan)
+    response = ask(sample(), "What is the total sales?")
+
+    assert response.status == "error"
+    assert response.evidence is not None
+    assert response.evidence["error"]["code"] in {"UNKNOWN_COLUMN", "NON_NUMERIC_COLUMN"}
+
+
+def test_ollama_planner_output_also_passes_shared_runtime_validation(monkeypatch):
+    import src.agent.orchestrator as orchestrator
+
+    unsafe_plan = AnalysisPlan(operation="aggregate", metric_column="region", aggregation="sum")
+    monkeypatch.setattr(
+        orchestrator, "plan_question_with_ollama",
+        lambda *args, **kwargs: unsafe_plan,
+    )
+    response = ask(sample(), "total sales", planner="ollama")
+
+    assert response.status == "error"
+    assert response.evidence["error"]["code"] == "NON_NUMERIC_COLUMN"
