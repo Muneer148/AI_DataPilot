@@ -67,7 +67,7 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
         r"\b20\d{2}\b",
     )
     if (any(re.search(pattern, q) for pattern in unsupported_scope)
-            or ("between" in q and not _has_any_phrase(q, ("correlation", "correlate", "relationship")))):
+            or (_has_any_phrase(q, ("between",)) and not _has_any_phrase(q, ("correlation", "correlate", "relationship")))):
         raise ValueError(
             "This request appears to need filtering, a time period, forecasting, or causal analysis that this MVP does not support. "
             "Please ask for one supported unfiltered summary, aggregation, row count, or two-column correlation."
@@ -75,7 +75,14 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
 
     matched = _column_matches(q, columns)
     summary_requested = _has_any_phrase(q, ("describe", "summary", "summarize", "profile", "overview"))
-    aggregation_requested = bool(re.search(r"\b(?:average|mean|avg|median|maximum|highest|largest|max|minimum|lowest|smallest|min|count|how many|sum|total|overall)\b", q))
+    aggregation_phrases = (
+        "average", "on average", "mean", "avg", "median",
+        "maximum", "highest", "largest", "max",
+        "minimum", "lowest", "smallest", "min",
+        "count", "how many", "number of",
+        "sum", "total", "overall", "add up", "combined total", "in total",
+    )
+    aggregation_requested = _has_any_phrase(q, aggregation_phrases)
     if summary_requested and aggregation_requested:
         raise ValueError("The request combines a dataset summary with a separate metric calculation. Please ask one question at a time.")
     if summary_requested:
@@ -110,7 +117,7 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
         if len(metric_candidates) != 2:
             raise ValueError("Correlation needs exactly two numeric column names. Please name both columns.")
         return AnalysisPlan(operation="correlation", group_by=tuple(metric_candidates), reason="Explicit correlation request.")
-    if _has_any_phrase(q, ("average", "mean", "avg")):
+    if _has_any_phrase(q, ("average", "on average", "mean", "avg")):
         op = "mean"
     elif _has_any_phrase(q, ("median",)):
         op = "median"
@@ -118,9 +125,9 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
         op = "max"
     elif _has_any_phrase(q, ("minimum", "lowest", "smallest", "min")):
         op = "min"
-    elif _has_any_phrase(q, ("count", "how many")):
+    elif _has_any_phrase(q, ("count", "how many", "number of")):
         op = "count"
-    elif _has_any_phrase(q, ("sum", "total", "overall")):
+    elif _has_any_phrase(q, ("sum", "total", "overall", "add up", "combined total", "in total")):
         op = "sum"
     else:
         raise ValueError("I understand the column name, but not the requested operation. Try sum, average, median, min/max, count, correlation, or summary.")
