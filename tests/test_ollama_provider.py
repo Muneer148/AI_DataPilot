@@ -121,7 +121,7 @@ def test_invalid_result_limit_is_rejected():
 
 def test_invalid_endpoint_is_rejected_before_network_request():
     with patch("src.agent.ollama_provider.urlopen") as mocked_urlopen:
-        with pytest.raises(ValueError, match="valid HTTP"):
+        with pytest.raises(OllamaProviderError, match="valid HTTP"):
             plan_question_with_ollama(
                 "What is the total sales?", frame(), base_url="file:///tmp/ollama"
             )
@@ -144,3 +144,22 @@ def test_provider_timeout_fails_closed():
     ):
         with pytest.raises(OllamaProviderError, match="Could not reach Ollama"):
             plan_question_with_ollama("What is the total sales?", frame())
+
+
+def test_oversized_provider_response_is_rejected_before_json_parse():
+    from src.agent.ollama_provider import MAX_PROVIDER_RESPONSE_BYTES
+
+    oversized = b" " * (MAX_PROVIDER_RESPONSE_BYTES + 1)
+    with patch(
+        "src.agent.ollama_provider.urlopen",
+        return_value=BytesIO(oversized),
+    ):
+        with pytest.raises(OllamaProviderError, match="exceeded"):
+            plan_question_with_ollama("What is the total sales?", frame())
+
+
+def test_invalid_provider_timeout_is_reported_as_provider_error():
+    with pytest.raises(OllamaProviderError, match="timeout"):
+        plan_question_with_ollama(
+            "What is the total sales?", frame(), timeout=0
+        )
