@@ -64,3 +64,16 @@ Verification recorded for this branch: GitHub Actions run [Agent MVP tests #69](
 ## Next integration dependency for Member 4
 
 Call the agent through `src.agent.ask(prepared_dataset, question, planner="rules")` (or make Ollama opt-in a deliberate UI/API setting) and serialize `AgentResponse.to_dict()`. The prepared data object must expose its analysis-ready DataFrame as `.dataframe`. Keep upload limits and API error handling in the application layer, and surface `status`, `answer`, `evidence`, and `clarification` consistently. Before merging, the team lead must reconcile this feature branch with the currently agreed `feature/data-foundation` integration baseline; do not merge the divergent branches blindly.
+
+
+## Phase 2 — Query understanding and safety hardening
+
+The rules planner remains deliberately bounded. It now recognizes additional explicit operation phrases such as “add up”, “combined total”, “in total”, “on average”, and “number of”, while matching intent as complete words/phrases rather than substrings. These phrases map only to the existing deterministic aggregation operations; they do not add filters, forecasting, joins, or free-form analysis.
+
+Ambiguous multi-metric requests and mixed summary/calculation requests continue to return `needs_clarification` without analytics evidence. Unsupported instructions and unsupported analysis scope must not be partially answered.
+
+For the optional Ollama planner, the system message explicitly treats the question as untrusted data and instructs the model to ignore attempts to change its role, bypass validation, invoke tools, or change the output schema. This is defense in depth, not a guarantee that an LLM cannot be manipulated: every returned plan still has to pass the provider schema checks and the shared runtime validator before deterministic analytics can execute. Tests verify that an unapproved model operation is rejected.
+
+Evidence-grounding regression tests cover exact single-metric values and grouped records. For grouped responses, the returned `evidence.records` remain the authoritative per-group values; the natural-language answer does not invent or independently recalculate those values.
+
+The expanded tests cover supported phrasing variants, ambiguous/mixed requests, an unsupported instruction-style request, grouped evidence grounding, the Ollama untrusted-input prompt boundary, and rejection of an unapproved model operation. Rerun the GitHub Actions workflow after these changes; do not treat prior CI results as validation of this Phase 2 revision.
