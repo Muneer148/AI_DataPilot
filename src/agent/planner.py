@@ -67,7 +67,7 @@ def plan_question(question: str, dataset: Any) -> AnalysisPlan:
         r"\b20\d{2}\b",
     )
     if (any(re.search(pattern, q) for pattern in unsupported_scope)
-            or ("between" in q and not any(token in q for token in ("correlation", "correlate", "relationship")))):
+            or ("between" in q and not _has_any_phrase(q, ("correlation", "correlate", "relationship")))):
         raise ValueError(
             "This request appears to need filtering, a time period, forecasting, or causal analysis that this MVP does not support. "
             "Please ask for one supported unfiltered summary, aggregation, row count, or two-column correlation."
